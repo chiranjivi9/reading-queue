@@ -10,10 +10,12 @@ RUN npm ci
 # Copy source and build
 COPY frontend/ ./
 # VITE_API_KEY must be known at build time so Vite can embed it in the JS bundle.
-# Pass it with: docker compose build --build-arg VITE_API_KEY=<your-key>
+# Local:   docker compose build --build-arg VITE_API_KEY=<your-key>
+# Fly.io:  fly secrets set --stage VITE_API_KEY=<your-key>  (uses secret mount)
 ARG VITE_API_KEY
-ENV VITE_API_KEY=$VITE_API_KEY
-RUN npm run build
+RUN --mount=type=secret,id=VITE_API_KEY \
+    VITE_API_KEY="${VITE_API_KEY:-$(cat /run/secrets/VITE_API_KEY 2>/dev/null || echo '')}" \
+    npm run build
 # Output: /app/frontend/dist/
 
 # ── Stage 2: Python backend ───────────────────────────────────────────────────
