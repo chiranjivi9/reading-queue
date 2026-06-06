@@ -376,11 +376,43 @@ Controlled by `CORS_ORIGINS` env var. Defaults to localhost origins in dev; set 
 ./start.sh   # starts backend (:8000) + frontend (:5173) with one command
 ```
 
-### Docker
+### Docker (next step — not yet verified)
 - Multi-stage Dockerfile: Node 20 Alpine builds React → Python 3.11 slim runs everything
-- `VITE_API_KEY` passed as build arg so Vite embeds it in the JS bundle
+- `VITE_API_KEY` passed as build arg so Vite embeds it in the JS bundle at build time
 - `docker-compose.yml`: single `app` service, SQLite persisted at `/app/data/articles.db` on a named volume
 - `Caddyfile`: optional TLS reverse proxy — uncomment Caddy service in compose when deploying with a real domain
+
+```bash
+# Build and run locally
+VITE_API_KEY=your-key docker-compose up --build
+
+# With Caddy TLS (needs a real domain in Caddyfile)
+docker-compose --profile caddy up --build
+```
+
+### Cloud deploy options
+
+| Platform | Effort | Cost | Notes |
+|---|---|---|---|
+| **Fly.io** | Low | ~$5/mo (shared-cpu-1x) | `fly launch` reads Dockerfile; volumes for SQLite |
+| **Railway** | Low | ~$5/mo | Connect GitHub repo; auto-deploys on push |
+| **VPS + Caddy** | Medium | ~$5/mo (Hetzner CX11) | Full control; Caddy handles HTTPS automatically |
+
+**Recommended: Fly.io** — single command deploy, volume support for SQLite, free tier for low traffic.
+
+```bash
+# Fly.io deploy (after fly auth login)
+fly launch          # detects Dockerfile, prompts for region
+fly volumes create data --size 1   # SQLite persistence
+fly secrets set ANTHROPIC_API_KEY=... TAVILY_API_KEY=... SECRET_KEY=...
+fly deploy --build-arg VITE_API_KEY=...
+```
+
+**Key production checklist:**
+- Set `CORS_ORIGINS` to your actual domain (removes localhost from allowed origins)
+- `SECRET_KEY` must be set — without it auth is skipped entirely
+- `VITE_API_KEY` must be provided at Docker build time (Vite embeds it; runtime env vars have no effect)
+- SQLite volume must be mounted — without it the DB resets on every deploy
 
 ### Environment variables
 
@@ -388,7 +420,8 @@ Controlled by `CORS_ORIGINS` env var. Defaults to localhost origins in dev; set 
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
 | `TAVILY_API_KEY` | Yes (for digest) | — | Tavily search API key |
-| `SECRET_KEY` | Prod only | — | API key for mutating endpoints |
+| `SECRET_KEY` | Yes (prod) | — | API key for mutating endpoints; auth skipped if unset |
+| `VITE_API_KEY` | Yes (prod) | — | Must match `SECRET_KEY`; passed as Docker build arg |
 | `DATABASE_URL` | No | SQLite local file | SQLAlchemy connection string |
 | `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed origins |
 | `INTERESTS` | No | `agentic systems, AI/ML, LLM engineering, software architecture` | User interests — biases scoring and digest framing |

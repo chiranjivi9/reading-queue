@@ -162,32 +162,61 @@ Replace the Friday cron stub with a real multi-agent system that synthesises art
 
 ---
 
-## Step 12 — History & Favorites (planned)
+## Step 12 — History & Favorites ✓
 
 Give the app long-term memory: browse all past digests and pin the articles worth keeping.
 
 ### Backend
-- [ ] `is_favorite` column added to `Article` model (boolean, default false)
-- [ ] Migration: `ALTER TABLE articles ADD COLUMN is_favorite BOOLEAN DEFAULT 0`
-- [ ] `PATCH /articles/{id}/favorite` — toggles `is_favorite`, auth-protected
-- [ ] `GET /digest/all` — returns all digests ordered by week DESC (id, week_number, content preview, created_at)
+- [x] `is_favorite` column added to `Article` model (boolean, default false)
+- [x] Migration: `ALTER TABLE articles ADD COLUMN is_favorite BOOLEAN DEFAULT 0`
+- [x] `PATCH /articles/{id}/favorite` — toggles `is_favorite`, auth-protected
+- [x] `GET /digest/all` — returns all digests ordered by week DESC
+- [x] `GET /digest/{id}` — returns any past digest by id with full trace
+- [x] `DELETE /digest/{id}` — hard delete a digest, auth-protected
+- [x] `GET /articles/favorites` — all starred articles across all weeks (not just current)
 
 ### Frontend
-- [ ] Star button on `ArticleCard` — calls PATCH, updates local state optimistically
-- [ ] `pages/HistoryPage.jsx` created — route `/history`:
-  - [ ] "Favorited Articles" section at top
-  - [ ] "Past Digests" list — week number, timestamp, content preview, click to read
-- [ ] Clicking a past digest navigates to `/digest/:id` (parameterised DigestPage)
-- [ ] `DigestPage.jsx` updated to accept optional `:id` param — falls back to `/digest/current` if no id
+- [x] Star button (☆/★) on `ArticleCard` — calls PATCH, updates local state optimistically
+- [x] `pages/HistoryPage.jsx` created — route `/history`:
+  - [x] "Starred Articles" section — unfavorite or delete any entry
+  - [x] "Past Digests" list — week number, date, content preview, delete button
+- [x] Clicking a past digest navigates to `/digest/:id`
+- [x] `DigestPage.jsx` updated to accept optional `:id` param — fetches `/digest/current` if no id
+- [x] Regenerate button hidden on past digest views (only shown for current week)
+- [x] Back button uses `navigate(-1)` so context is preserved (history → digest → back to history)
+- [x] "History" nav link in app header
+
+### Also fixed
+- [x] `tavily-python` and `lxml_html_clean` installed in venv (digest generation was broken at import)
+
+---
+
+## Step 13 — Docker test & cloud deploy (next)
+
+### Docker
+- [ ] `docker-compose up --build` runs cleanly
+- [ ] App accessible at `http://localhost:8000` from Docker container
+- [ ] SQLite volume persists data across container restarts
+- [ ] `VITE_API_KEY` embedded correctly in the built JS bundle
+
+### Deploy
+- [ ] Choose platform (VPS + Caddy, Fly.io, or Railway)
+- [ ] Set all production env vars: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `SECRET_KEY`, `CORS_ORIGINS`
+- [ ] Push Docker image / connect repo to platform
+- [ ] HTTPS working (Caddy auto-TLS or platform-managed)
+- [ ] Smoke test all endpoints against production URL
+- [ ] Set `VITE_API_KEY` as a build secret on the deploy platform
 
 ---
 
 ## Done when:
-- [ ] Full end-to-end test: paste URL → processing → ready → digest generated
-- [ ] Agent trace and graph visible in DigestPage
-- [ ] Token usage displayed correctly
+- [x] Full end-to-end flow: paste URL → processing → ready → digest generated
+- [x] Agent trace and graph visible in DigestPage
+- [x] Token usage displayed correctly
+- [x] History page shows all past digests with delete
+- [x] Favorites persist across page reloads
+- [ ] `docker-compose up --build` verified
+- [ ] App live on a public URL with HTTPS
 - [ ] Rate limiting verified (429 after limit)
 - [ ] Authentication verified (401 without credentials)
-- [ ] History page shows all past digests
-- [ ] Favorites persist across page reloads
 - [ ] README instructions verified accurate
