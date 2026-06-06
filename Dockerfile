@@ -13,9 +13,8 @@ COPY frontend/ ./
 # Local:   docker compose build --build-arg VITE_API_KEY=<your-key>
 # Fly.io:  fly secrets set --stage VITE_API_KEY=<your-key>  (uses secret mount)
 ARG VITE_API_KEY
-RUN --mount=type=secret,id=VITE_API_KEY \
-    VITE_API_KEY="${VITE_API_KEY:-$(cat /run/secrets/VITE_API_KEY 2>/dev/null || echo '')}" \
-    npm run build
+ENV VITE_API_KEY=$VITE_API_KEY
+RUN npm run build
 # Output: /app/frontend/dist/
 
 # ── Stage 2: Python backend ───────────────────────────────────────────────────
