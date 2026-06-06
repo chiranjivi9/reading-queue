@@ -30,34 +30,35 @@ A personal tool to paste article URLs during the week and get a ranked digest ev
 
 ## Quick start
 
-**Backend:**
+**One command (recommended):**
 ```bash
-cd backend
+./start.sh
+```
+Starts both servers. Stop with Ctrl+C.
 
-# 1. Create and activate a virtual environment
+- App: http://localhost:5173
+- API: http://localhost:8000
+- API docs: http://localhost:8000/docs
+
+**Manual setup (first time):**
+```bash
+# Backend
+cd backend
 python3.11 -m venv venv
 source venv/bin/activate
-
-# 2. Install dependencies
 pip install -r requirements.txt
-
-# 3. Set up environment variables
 cp .env.example .env
 # Edit .env and add your ANTHROPIC_API_KEY
+cd ..
 
-# 4. Run the API server
-uvicorn src.main:app --reload
-```
-
-**Frontend (in a second terminal):**
-```bash
+# Frontend
 cd frontend
 npm install
-npm run dev
-```
+cd ..
 
-- API: http://localhost:8000
-- App: http://localhost:5173
+# Then run
+./start.sh
+```
 
 ## Run with Docker
 

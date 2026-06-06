@@ -86,45 +86,39 @@ Track each step as you build. Check off tasks as you complete them.
 ---
 
 ## Step 8 — Docker & deployment files
-- [ ] `Dockerfile` created
-- [ ] `docker-compose.yml` created
-- [ ] `.env.example` created
-- [ ] `Caddyfile` created
-- [ ] `docker-compose up --build` runs successfully
+- [X] `Dockerfile` created — multi-stage build (Node builds frontend → Python runs everything)
+- [X] `.dockerignore` created — excludes venv, node_modules, .env, .db from image
+- [X] `docker-compose.yml` created — single `app` service with SQLite volume; Caddy section commented out for optional HTTPS
+- [X] `Caddyfile` created — TLS reverse proxy config (uncomment Caddy in compose to use)
+- [X] `start.sh` created — one command starts both backend and frontend dev servers
+- [X] `start.sh` fixed — exports `VIRTUAL_ENV` and uses `python -m uvicorn` so `--reload` subprocesses inherit the venv Python instead of Anaconda's
+- [X] `main.py` updated — serves built frontend static files in production (catch-all route after all API routes)
+- [ ] `docker-compose up --build` tested successfully
 
 ---
 
-## Step 9 — Rate limiting (~30 min)
+## Step 9 — Rate limiting
 Add `slowapi` to cap how many times AI endpoints can be called per IP.
 Prevents unexpected Anthropic bill spikes if the app URL is discovered.
 
-- [ ] `pip install slowapi` and add to `requirements.txt`
-- [ ] Configure `Limiter` in `main.py` with a default in-memory store
-- [ ] Apply limit to `POST /articles` — e.g. 20/hour per IP
-- [ ] Apply limit to `POST /articles/{id}/chat` — e.g. 30/hour per IP
+- [X] `slowapi` installed and added to `requirements.txt`
+- [X] `Limiter` configured in `main.py` with in-memory store (resets on restart)
+- [X] `POST /articles` limited to 20/hour per IP
+- [X] `POST /articles/{id}/chat` limited to 30/hour per IP
+- [X] Returns HTTP 429 automatically when limit is exceeded
 - [ ] Test: verify 429 is returned after limit is hit
 
 ---
 
-## Step 10 — Authentication (~1 hour, two options — pick one)
-
-**Option A: Caddy HTTP Basic Auth** (simplest, requires Step 8 done first)
-- Zero backend code changes — Caddy handles it at the proxy level
-- Add `basic_auth` block to `Caddyfile` with a hashed password
-- All routes are protected automatically
-- Estimated time: ~10 min once Docker is running
-
-**Option B: FastAPI API key middleware** (works without Docker, ~30 min)
-- Add `SECRET_KEY` env var to `.env` and `.env.example`
-- Add a FastAPI dependency `verify_api_key()` that checks the `X-API-Key` header
-- Apply the dependency to all routes that mutate data (POST, DELETE, chat)
-- Update frontend to send the header on every API call
-- Estimated time: ~30–45 min
-
-Tasks (fill in once you've chosen):
-- [ ] Choose approach (A or B)
-- [ ] Implement chosen approach
-- [ ] Test: unauthenticated request returns 401/403
+## Step 10 — Authentication (Option B: API key)
+- [X] `SECRET_KEY` added to `backend/.env.example`
+- [X] `verify_api_key()` dependency added to `main.py` — checks `X-API-Key` header
+- [X] Applied to `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`
+- [X] GET routes left open (read-only, no AI cost)
+- [X] Frontend sends `X-API-Key` header on all mutating requests
+- [X] `VITE_API_KEY` read from `frontend/.env.local` (gitignored)
+- [X] Auth skipped in dev if `SECRET_KEY` is not set — no friction during development
+- [ ] Test: unauthenticated request returns 401
 - [ ] Test: authenticated request works normally
 
 ---

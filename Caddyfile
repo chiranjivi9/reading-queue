@@ -1,1 +1,14 @@
-# Caddyfile — built in Step 8
+# Caddyfile — production HTTPS reverse proxy
+#
+# Usage (with Caddy in docker-compose):
+#   1. Point your domain's DNS A record to your server IP.
+#   2. Replace "queue.yourdomain.com" with your actual domain.
+#   3. Uncomment the caddy service in docker-compose.yml.
+#   4. Run: docker-compose up -d
+#
+# Caddy automatically obtains and renews a free TLS certificate via Let's Encrypt.
+# The app container handles both API and frontend — Caddy just terminates TLS.
+
+queue.yourdomain.com {
+    reverse_proxy app:8000
+}

@@ -8,6 +8,11 @@
 
 import { useState } from 'react'
 
+// Read from frontend/.env.local (gitignored). If not set, no header is sent
+// and the backend skips auth (dev mode). In production set both SECRET_KEY
+// (backend) and VITE_API_KEY (frontend) to the same value.
+const API_KEY = import.meta.env.VITE_API_KEY ?? ''
+
 /**
  * @param {function} onAdd - called with the new article object after a
  *                           successful POST so App can add it to state
@@ -28,7 +33,10 @@ export default function AddArticle({ onAdd }) {
     try {
       const response = await fetch('/articles', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY && { 'X-API-Key': API_KEY }),
+        },
         body: JSON.stringify({ url: url.trim() }),
       })
 

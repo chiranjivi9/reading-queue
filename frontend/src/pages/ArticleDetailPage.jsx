@@ -12,6 +12,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { getDomain, scoreBadgeClass } from '../utils'
 
+const API_KEY = import.meta.env.VITE_API_KEY ?? ''
+
 export default function ArticleDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -55,7 +57,10 @@ export default function ArticleDetailPage() {
     try {
       const res = await fetch(`/articles/${id}/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(API_KEY && { 'X-API-Key': API_KEY }),
+        },
         body: JSON.stringify({ messages: nextMessages }),
       })
       if (!res.ok) throw new Error('Chat request failed')

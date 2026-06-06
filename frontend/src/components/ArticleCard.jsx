@@ -9,6 +9,8 @@
 import { useNavigate } from 'react-router-dom'
 import { getDomain, scoreBadgeClass } from '../utils'
 
+const API_KEY = import.meta.env.VITE_API_KEY ?? ''
+
 export default function ArticleCard({ article, onDelete }) {
   const { id, url, title, score, score_reason, status } = article
   const navigate = useNavigate()
@@ -16,7 +18,10 @@ export default function ArticleCard({ article, onDelete }) {
   async function handleDelete(e) {
     e.stopPropagation()
     if (!window.confirm('Delete this article?')) return
-    await fetch(`/articles/${id}`, { method: 'DELETE' })
+    await fetch(`/articles/${id}`, {
+      method: 'DELETE',
+      headers: { ...(API_KEY && { 'X-API-Key': API_KEY }) },
+    })
     onDelete(id)
   }
 

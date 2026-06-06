@@ -1,1 +1,36 @@
-# docker-compose.yml — built in Step 8
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"          # API + frontend on one port
+    env_file: backend/.env   # ANTHROPIC_API_KEY, SECRET_KEY, CORS_ORIGINS, etc.
+    environment:
+      # Point the database at the persistent volume
+      DATABASE_URL: sqlite+aiosqlite:////app/data/articles.db
+    volumes:
+      - sqlite_data:/app/data  # SQLite file survives container restarts
+    restart: unless-stopped
+
+  # ── Optional: HTTPS with Caddy ─────────────────────────────────────────────
+  # Uncomment when you have a real domain and want automatic TLS.
+  # Set CORS_ORIGINS=https://yourdomain.com in backend/.env first.
+  #
+  # caddy:
+  #   image: caddy:2-alpine
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile
+  #     - caddy_data:/data
+  #     - caddy_config:/config
+  #   depends_on:
+  #     - app
+  #   restart: unless-stopped
+
+volumes:
+  sqlite_data:
+  # caddy_data:
+  # caddy_config:

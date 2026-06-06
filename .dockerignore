@@ -1,0 +1,25 @@
+# Python
+backend/venv/
+backend/__pycache__/
+backend/src/__pycache__/
+backend/src/services/__pycache__/
+**/*.pyc
+**/*.pyo
+
+# Secrets & database (never bake these into the image)
+backend/.env
+backend/articles.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Git
+.git/
+.gitignore
+
+# Docs (not needed in the image)
+docs/
+
+# OS
+.DS_Store
