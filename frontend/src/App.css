@@ -247,10 +247,39 @@ body {
   background: #fff;
 }
 
+.digest__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
 .digest__heading {
   font-size: 0.875rem;
   font-weight: 600;
-  margin-bottom: 10px;
+}
+
+.digest__generate-btn {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 10px;
+  background: #1a1a1a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.digest__generate-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.digest__empty {
+  font-size: 0.8rem;
+  color: #999;
+  font-style: italic;
 }
 
 .digest__content {
@@ -476,6 +505,54 @@ body {
 }
 
 /* -------------------------------------------------------------------------
+   Digest — suggested articles
+   ------------------------------------------------------------------------- */
+
+.digest__suggested {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 0.5px solid #e0e0e0;
+}
+
+.digest__suggested-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  margin-bottom: 8px;
+}
+
+.digest__suggested-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.digest__suggested-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.digest__suggested-title {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  text-decoration: none;
+}
+
+.digest__suggested-title:hover {
+  text-decoration: underline;
+}
+
+.digest__suggested-reason {
+  font-size: 0.75rem;
+  color: #999;
+}
+
+/* -------------------------------------------------------------------------
    Agent trace
    ------------------------------------------------------------------------- */
 
@@ -520,10 +597,44 @@ body {
   margin-top: 1px;
 }
 
+.trace__step--agent-start {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.trace__agent-start-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.trace__agent-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.trace__agent-badge--discovery { background: #e8f0fe; color: #1a56db; }
+.trace__agent-badge--digest    { background: #d4f4dd; color: #1a6630; }
+
 .trace__step--reasoning {
   background: #f9f9f7;
   border-radius: 6px;
   padding: 8px 10px;
+}
+
+.trace__reasoning-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .trace__reasoning-text {
@@ -531,6 +642,12 @@ body {
   color: #555;
   line-height: 1.55;
   font-style: italic;
+}
+
+.trace__tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .trace__step--tool {

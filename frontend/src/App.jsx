@@ -15,11 +15,13 @@ import ArticleDetailPage from './pages/ArticleDetailPage'
 import './App.css'
 
 const POLL_INTERVAL_MS = 5000
+const API_KEY = import.meta.env.VITE_API_KEY ?? ''
 
 export default function App() {
-  const [articles, setArticles] = useState([])
-  const [digest, setDigest]     = useState(null)
-  const [toast, setToast]       = useState(null)
+  const [articles, setArticles]         = useState([])
+  const [digest, setDigest]             = useState(null)
+  const [toast, setToast]               = useState(null)
+  const [digestRunning, setDigestRunning] = useState(false)
 
   async function fetchArticles() {
     try {
@@ -65,6 +67,30 @@ export default function App() {
     setTimeout(() => setToast(null), 3000)
   }
 
+  async function handleGenerateDigest() {
+    setDigestRunning(true)
+    try {
+      const res = await fetch('/digest/generate', {
+        method: 'POST',
+        headers: { ...(API_KEY && { 'X-API-Key': API_KEY }) },
+      })
+      if (!res.ok) throw new Error(await res.text())
+      showToast('Digest agent started — this takes ~30 seconds…')
+      // Poll more aggressively until digest appears
+      const poll = setInterval(async () => {
+        await fetchDigest()
+        setDigest(prev => {
+          if (prev) { clearInterval(poll); setDigestRunning(false) }
+          return prev
+        })
+      }, 3000)
+      setTimeout(() => { clearInterval(poll); setDigestRunning(false) }, 120_000)
+    } catch {
+      showToast('Failed to start digest agent', 'error')
+      setDigestRunning(false)
+    }
+  }
+
   return (
     <>
       <Routes>
@@ -79,7 +105,11 @@ export default function App() {
 
               <main className="app__main">
                 <AddArticle onAdd={handleAdd} />
-                <DigestView digest={digest} />
+                <DigestView
+                  digest={digest}
+                  onGenerate={handleGenerateDigest}
+                  generating={digestRunning}
+                />
 
                 {articles.length === 0 ? (
                   <div className="empty-state">

@@ -1,13 +1,50 @@
 import AgentTrace from './AgentTrace'
 
-export default function DigestView({ digest }) {
-  if (!digest) return null
-
+export default function DigestView({ digest, onGenerate, generating }) {
   return (
     <section className="digest">
-      <h2 className="digest__heading">Week {digest.week_number} Digest</h2>
-      <pre className="digest__content">{digest.content}</pre>
-      <AgentTrace trace={digest.trace} />
+      <div className="digest__header">
+        <h2 className="digest__heading">
+          {digest ? `Week ${digest.week_number} Digest` : 'Weekly Digest'}
+        </h2>
+        <button
+          className="digest__generate-btn"
+          onClick={onGenerate}
+          disabled={generating}
+        >
+          {generating ? 'Running…' : digest ? 'Regenerate' : 'Generate'}
+        </button>
+      </div>
+
+      {digest ? (
+        <>
+          <pre className="digest__content">{digest.content}</pre>
+
+          {digest.suggested_articles?.length > 0 && (
+            <div className="digest__suggested">
+              <p className="digest__suggested-heading">Also worth reading — found by the Discovery agent</p>
+              <ul className="digest__suggested-list">
+                {digest.suggested_articles.map((a, i) => (
+                  <li key={i} className="digest__suggested-item">
+                    <a href={a.url} target="_blank" rel="noreferrer" className="digest__suggested-title">
+                      {a.title}
+                    </a>
+                    <p className="digest__suggested-reason">{a.reason}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <AgentTrace trace={digest.trace} />
+        </>
+      ) : (
+        <p className="digest__empty">
+          {generating
+            ? 'Agent is thinking — check back in ~30 seconds…'
+            : 'No digest yet this week. Click Generate to run the agent.'}
+        </p>
+      )}
     </section>
   )
 }

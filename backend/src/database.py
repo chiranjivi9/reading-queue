@@ -107,7 +107,8 @@ async def init_db():
         # One-time migration: add trace column to existing digests tables.
         # create_all skips tables that already exist, so we handle new columns here.
         # Silently ignored if the column is already present.
-        try:
-            await conn.execute(text("ALTER TABLE digests ADD COLUMN trace TEXT"))
-        except Exception:
-            pass
+        for col in ("trace", "themes", "suggested_articles"):
+            try:
+                await conn.execute(text(f"ALTER TABLE digests ADD COLUMN {col} TEXT"))
+            except Exception:
+                pass

@@ -86,12 +86,13 @@ class DigestResponse(BaseModel):
     week_number: int
     content: str
     trace: Optional[list] = None
+    suggested_articles: Optional[list] = None
     created_at: Optional[datetime]
 
-    @field_validator("trace", mode="before")
+    @field_validator("trace", "suggested_articles", mode="before")
     @classmethod
-    def _parse_trace(cls, v):
-        """Deserialise the JSON string stored in the DB into a Python list."""
+    def _parse_json_list(cls, v):
+        """Deserialise JSON strings from the DB into Python lists."""
         if isinstance(v, str):
             try:
                 return __import__("json").loads(v)

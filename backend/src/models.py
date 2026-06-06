@@ -135,8 +135,15 @@ class Digest(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
     # JSON-serialised list of agent trace steps (see SDD §8).
-    # Stored as TEXT so it works with both SQLite and Postgres without extra config.
     trace: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # JSON-serialised list of theme strings extracted from this digest.
+    # Used to give the next week's agent memory of past reading patterns.
+    themes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # JSON-serialised list of {title, url, snippet, reason} dicts.
+    # Articles discovered by the Discovery agent, not posted by the user.
+    suggested_articles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
