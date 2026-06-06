@@ -295,6 +295,23 @@ async def get_current_digest(db: AsyncSession = Depends(get_db)):
     return digest
 
 
+@app.post("/digest/generate", status_code=202, dependencies=[Depends(verify_api_key)])
+async def trigger_digest(background_tasks: BackgroundTasks):
+    """
+    Manually trigger the digest agent for the current week.
+
+    Returns 202 immediately — the agent runs in the background.
+    Poll GET /digest/current until it returns a result.
+    Auth-protected so this can stay in production without risk.
+    """
+    async def _run():
+        async with AsyncSessionLocal() as db:
+            await run_digest_agent(db)
+
+    background_tasks.add_task(_run)
+    return {"status": "started", "message": "Digest agent running — poll GET /digest/current for the result."}
+
+
 # ---------------------------------------------------------------------------
 # Frontend static file serving (production only)
 #
