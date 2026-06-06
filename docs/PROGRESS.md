@@ -191,32 +191,41 @@ Give the app long-term memory: browse all past digests and pin the articles wort
 
 ---
 
-## Step 13 — Docker test & cloud deploy (next)
+## Step 13 — Docker test & cloud deploy ✓
 
 ### Docker
 - [x] `docker-compose up --build` runs cleanly
 - [x] App accessible at `http://localhost:8000` from Docker container
 - [x] SQLite volume persists data across container restarts
-- [x] `VITE_API_KEY` embedded correctly in the built JS bundle
+- [x] `VITE_API_KEY` embedded via `--build-arg` on `fly deploy`
 
-### Deploy
-- [ ] Choose platform (VPS + Caddy, Fly.io, or Railway)
-- [ ] Set all production env vars: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `SECRET_KEY`, `CORS_ORIGINS`
-- [ ] Push Docker image / connect repo to platform
-- [ ] HTTPS working (Caddy auto-TLS or platform-managed)
-- [ ] Smoke test all endpoints against production URL
-- [ ] Set `VITE_API_KEY` as a build secret on the deploy platform
+### Deploy — Fly.io (sunlit-grove-996.fly.dev)
+- [x] Fly.io app created (`sunlit-grove-996`, Singapore region)
+- [x] SQLite volume mounted at `/app/data`
+- [x] All secrets set: `ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, `SECRET_KEY`, `CORS_ORIGINS`
+- [x] HTTPS working (Fly.io managed TLS)
+- [x] Auth verified: 401 without key, 202 with key
+- [x] All endpoints smoke-tested against production URL
 
 ---
 
-## Done when:
+## Step 14 — Production fixes ✓
+
+- [x] **Jina Reader fallback** — sites that block trafilatura (Medium, etc.) now extracted via `r.jina.ai`
+- [x] **Jina error detection** — responses under 200 chars or containing error keywords raise `ExtractorError` instead of being summarised by Claude
+- [x] **Retry with backoff** — extraction retried up to 3× (immediate → 5s → 15s) before marking `failed`
+- [x] **VITE_API_KEY build arg** — fixed `--mount=type=secret` not working with Fly.io Depot builder; reverted to `--build-arg` passed on `fly deploy`
+
+---
+
+## Done ✓
 - [x] Full end-to-end flow: paste URL → processing → ready → digest generated
 - [x] Agent trace and graph visible in DigestPage
 - [x] Token usage displayed correctly
 - [x] History page shows all past digests with delete
 - [x] Favorites persist across page reloads
 - [x] `docker-compose up --build` verified
-- [ ] App live on a public URL with HTTPS
-- [ ] Rate limiting verified (429 after limit)
-- [ ] Authentication verified (401 without credentials)
-- [ ] README instructions verified accurate
+- [x] App live at https://sunlit-grove-996.fly.dev with HTTPS
+- [x] Authentication verified (401 without key, 202 with key)
+- [x] README updated and accurate
+- [ ] Rate limiting verified (429 after limit) — low priority for personal use

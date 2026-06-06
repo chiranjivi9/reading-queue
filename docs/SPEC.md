@@ -19,6 +19,8 @@ Single-user personal tool. API key authentication on mutating endpoints.
 - If the URL already exists, return the existing record (no duplicate)
 - Insert the article with status `pending`
 - In the background: extract content → summarise → score → update to `ready` or `failed`
+- Extraction is attempted with Trafilatura first; if it fails (e.g. site blocks bots), Jina Reader is used as a fallback
+- If both fail, the process retries up to 3 times (immediate → 5s → 15s) before marking `failed`
 - The UI shows the card immediately with a "Processing" pill, then refreshes automatically
 
 ### FR-2: View this week's articles

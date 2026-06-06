@@ -220,10 +220,19 @@ Defines SQLAlchemy ORM models (`Article`, `Digest`). `Digest` has `trace`, `them
 ### `services/extractor.py`
 ```
 extract_article(url: str) -> dict
-  └── trafilatura.fetch_url(url)
-  └── trafilatura.extract(downloaded)
-  └── return { "title": ..., "text": ... }
-  └── raises ExtractorError if failed
+  └── _fetch_and_extract(url)          # Trafilatura (fast, local)
+        └── if fails →
+  └── _extract_via_jina(url)           # Jina Reader fallback (r.jina.ai)
+        └── GET https://r.jina.ai/<url>
+        └── validates response (length + error keywords)
+        └── parses "Title: ..." from response header line
+  └── raises ExtractorError if both fail
+
+Retry logic (in process_article background task):
+  attempt 1: immediate
+  attempt 2: after 5s
+  attempt 3: after 15s
+  → marks article "failed" only after all 3 attempts exhausted
 ```
 
 ### `services/summariser.py`
