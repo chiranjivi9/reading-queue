@@ -16,6 +16,7 @@ Why async?
 import os
 
 from dotenv import load_dotenv
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from src.models import Base
@@ -102,3 +103,11 @@ async def init_db():
         # run_sync is needed because create_all is a synchronous method.
         # engine.begin() gives us an async connection; run_sync bridges the gap.
         await conn.run_sync(Base.metadata.create_all)
+
+        # One-time migration: add trace column to existing digests tables.
+        # create_all skips tables that already exist, so we handle new columns here.
+        # Silently ignored if the column is already present.
+        try:
+            await conn.execute(text("ALTER TABLE digests ADD COLUMN trace TEXT"))
+        except Exception:
+            pass

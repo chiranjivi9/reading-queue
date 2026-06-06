@@ -476,6 +476,93 @@ body {
 }
 
 /* -------------------------------------------------------------------------
+   Agent trace
+   ------------------------------------------------------------------------- */
+
+.trace {
+  margin-top: 14px;
+  border-top: 0.5px solid #e0e0e0;
+  padding-top: 12px;
+}
+
+.trace__toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: #888;
+  padding: 0;
+  letter-spacing: 0.01em;
+  transition: color 0.15s;
+}
+
+.trace__toggle:hover {
+  color: #1a1a1a;
+}
+
+.trace__steps {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trace__step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.trace__icon {
+  font-size: 0.875rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.trace__step--reasoning {
+  background: #f9f9f7;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.trace__reasoning-text {
+  font-size: 0.8rem;
+  color: #555;
+  line-height: 1.55;
+  font-style: italic;
+}
+
+.trace__step--tool {
+  padding: 6px 10px;
+  border-left: 2px solid #e0e0e0;
+}
+
+.trace__tool-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.trace__tool-name {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  color: #1a1a1a;
+}
+
+.trace__tool-query {
+  font-size: 0.75rem;
+  color: #666;
+  font-style: italic;
+}
+
+.trace__tool-summary {
+  font-size: 0.75rem;
+  color: #999;
+}
+
+/* -------------------------------------------------------------------------
    Mobile  (≤ 480px)
    ------------------------------------------------------------------------- */
 

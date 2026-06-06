@@ -13,7 +13,7 @@ Keeping schemas in their own file prevents main.py from growing too large.
 from datetime import datetime
 from typing import Optional
 
-from pydantic import AnyHttpUrl, BaseModel, ConfigDict
+from pydantic import AnyHttpUrl, BaseModel, ConfigDict, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +85,19 @@ class DigestResponse(BaseModel):
     id: int
     week_number: int
     content: str
+    trace: Optional[list] = None
     created_at: Optional[datetime]
+
+    @field_validator("trace", mode="before")
+    @classmethod
+    def _parse_trace(cls, v):
+        """Deserialise the JSON string stored in the DB into a Python list."""
+        if isinstance(v, str):
+            try:
+                return __import__("json").loads(v)
+            except (ValueError, TypeError):
+                return []
+        return v or []
 
 
 # ---------------------------------------------------------------------------

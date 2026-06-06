@@ -43,6 +43,7 @@ from src.schemas import (
     ChatResponse,
     DigestResponse,
 )
+from src.services.digest_agent import run_digest_agent
 from src.services.extractor import ExtractorError, extract_article
 from src.services.summariser import SummariserError, summarise
 
@@ -86,8 +87,10 @@ scheduler = AsyncIOScheduler()
 
 
 async def _generate_digest_job():
-    """Stub for the Friday 6pm digest generation job."""
-    logger.info("Digest job triggered — digest generation not yet implemented.")
+    """Friday 6pm cron: run the agentic digest generator."""
+    logger.info("Digest job triggered — starting agent.")
+    async with AsyncSessionLocal() as db:
+        await run_digest_agent(db)
 
 
 # ---------------------------------------------------------------------------

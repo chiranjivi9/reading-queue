@@ -134,6 +134,10 @@ class Digest(Base):
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
+    # JSON-serialised list of agent trace steps (see SDD §8).
+    # Stored as TEXT so it works with both SQLite and Postgres without extra config.
+    trace: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
