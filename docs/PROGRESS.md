@@ -194,10 +194,10 @@ Give the app long-term memory: browse all past digests and pin the articles wort
 ## Step 13 — Docker test & cloud deploy (next)
 
 ### Docker
-- [ ] `docker-compose up --build` runs cleanly
-- [ ] App accessible at `http://localhost:8000` from Docker container
-- [ ] SQLite volume persists data across container restarts
-- [ ] `VITE_API_KEY` embedded correctly in the built JS bundle
+- [x] `docker-compose up --build` runs cleanly
+- [x] App accessible at `http://localhost:8000` from Docker container
+- [x] SQLite volume persists data across container restarts
+- [x] `VITE_API_KEY` embedded correctly in the built JS bundle
 
 ### Deploy
 - [ ] Choose platform (VPS + Caddy, Fly.io, or Railway)
@@ -215,7 +215,7 @@ Give the app long-term memory: browse all past digests and pin the articles wort
 - [x] Token usage displayed correctly
 - [x] History page shows all past digests with delete
 - [x] Favorites persist across page reloads
-- [ ] `docker-compose up --build` verified
+- [x] `docker-compose up --build` verified
 - [ ] App live on a public URL with HTTPS
 - [ ] Rate limiting verified (429 after limit)
 - [ ] Authentication verified (401 without credentials)
