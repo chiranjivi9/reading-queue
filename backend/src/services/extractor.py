@@ -100,6 +100,14 @@ async def _extract_via_jina(url: str) -> dict:
     if not text:
         raise ExtractorError(f"Jina Reader returned empty content for: {url}")
 
+    # Detect Jina error pages — they return 200 but with an error body
+    lower = text.lower()
+    if len(text) < 200 or any(p in lower for p in (
+        "server error", "access denied", "403 forbidden",
+        "404 not found", "inaccessible", "blocked", "captcha",
+    )):
+        raise ExtractorError(f"Jina Reader could not access content from: {url}")
+
     # Jina returns "Title: <title>\n..." as the first line
     lines = text.splitlines()
     title = url
