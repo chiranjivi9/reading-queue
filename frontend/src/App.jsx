@@ -7,11 +7,13 @@
  */
 
 import { useEffect, useState } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import AddArticle from './components/AddArticle'
 import ArticleCard from './components/ArticleCard'
 import DigestView from './components/DigestView'
 import ArticleDetailPage from './pages/ArticleDetailPage'
+import DigestPage from './pages/DigestPage'
+import HistoryPage from './pages/HistoryPage'
 import './App.css'
 
 const POLL_INTERVAL_MS = 5000
@@ -22,6 +24,7 @@ export default function App() {
   const [digest, setDigest]             = useState(null)
   const [toast, setToast]               = useState(null)
   const [digestRunning, setDigestRunning] = useState(false)
+  const navigate = useNavigate()
 
   async function fetchArticles() {
     try {
@@ -62,6 +65,10 @@ export default function App() {
     setArticles(prev => prev.filter(a => a.id !== deletedId))
   }
 
+  function handleFavorite(updatedArticle) {
+    setArticles(prev => prev.map(a => a.id === updatedArticle.id ? updatedArticle : a))
+  }
+
   function showToast(message, type = 'success') {
     setToast({ message, type })
     setTimeout(() => setToast(null), 3000)
@@ -99,7 +106,10 @@ export default function App() {
           element={
             <div className="app">
               <header className="app__header">
-                <h1 className="app__title">Reading Queue</h1>
+                <div className="app__title-row">
+                  <h1 className="app__title">Reading Queue</h1>
+                  <button className="app__nav-link" onClick={() => navigate('/history')}>History</button>
+                </div>
                 <p className="app__subtitle">Paste articles. Get a ranked digest every Friday.</p>
               </header>
 
@@ -120,7 +130,7 @@ export default function App() {
                   <ul className="article-list">
                     {articles.map(article => (
                       <li key={article.id}>
-                        <ArticleCard article={article} onDelete={handleDelete} />
+                        <ArticleCard article={article} onDelete={handleDelete} onFavorite={handleFavorite} />
                       </li>
                     ))}
                   </ul>
@@ -131,6 +141,9 @@ export default function App() {
         />
 
         <Route path="/articles/:id" element={<ArticleDetailPage />} />
+        <Route path="/digest" element={<DigestPage />} />
+        <Route path="/digest/:id" element={<DigestPage />} />
+        <Route path="/history" element={<HistoryPage />} />
       </Routes>
 
       {toast && (

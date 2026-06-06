@@ -66,6 +66,7 @@ class ArticleResponse(BaseModel):
     score: Optional[int]
     score_reason: Optional[str]
     status: str
+    is_favorite: bool = False
     created_at: Optional[datetime]
     week_number: int
 
@@ -87,18 +88,49 @@ class DigestResponse(BaseModel):
     content: str
     trace: Optional[list] = None
     suggested_articles: Optional[list] = None
+    token_usage: Optional[dict] = None
     created_at: Optional[datetime]
 
     @field_validator("trace", "suggested_articles", mode="before")
     @classmethod
     def _parse_json_list(cls, v):
-        """Deserialise JSON strings from the DB into Python lists."""
         if isinstance(v, str):
             try:
                 return __import__("json").loads(v)
             except (ValueError, TypeError):
                 return []
         return v or []
+
+    @field_validator("token_usage", mode="before")
+    @classmethod
+    def _parse_json_dict(cls, v):
+        if isinstance(v, str):
+            try:
+                return __import__("json").loads(v)
+            except (ValueError, TypeError):
+                return None
+        return v
+
+
+class DigestListItem(BaseModel):
+    """One digest as returned by GET /digest/all — no trace to keep payload small."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    week_number: int
+    content: str
+    token_usage: Optional[dict] = None
+    created_at: Optional[datetime]
+
+    @field_validator("token_usage", mode="before")
+    @classmethod
+    def _parse_json_dict(cls, v):
+        if isinstance(v, str):
+            try:
+                return __import__("json").loads(v)
+            except (ValueError, TypeError):
+                return None
+        return v
 
 
 # ---------------------------------------------------------------------------

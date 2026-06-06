@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -93,8 +93,13 @@ class Article(Base):
         String(20),
         nullable=False,
         default=ArticleStatus.PENDING.value,
-        index=True,  # GET /articles filters by week_number and orders by score;
-                     # indexing status helps when filtering for "ready" articles
+        index=True,
+    )
+
+    is_favorite: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -138,12 +143,14 @@ class Digest(Base):
     trace: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # JSON-serialised list of theme strings extracted from this digest.
-    # Used to give the next week's agent memory of past reading patterns.
     themes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # JSON-serialised list of {title, url, snippet, reason} dicts.
-    # Articles discovered by the Discovery agent, not posted by the user.
     suggested_articles: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # JSON-serialised token usage totals across all agent API calls.
+    # Keys: input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens.
+    token_usage: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,

@@ -11,8 +11,8 @@ import { getDomain, scoreBadgeClass } from '../utils'
 
 const API_KEY = import.meta.env.VITE_API_KEY ?? ''
 
-export default function ArticleCard({ article, onDelete }) {
-  const { id, url, title, score, score_reason, status } = article
+export default function ArticleCard({ article, onDelete, onFavorite }) {
+  const { id, url, title, score, score_reason, status, is_favorite } = article
   const navigate = useNavigate()
 
   async function handleDelete(e) {
@@ -23,6 +23,18 @@ export default function ArticleCard({ article, onDelete }) {
       headers: { ...(API_KEY && { 'X-API-Key': API_KEY }) },
     })
     onDelete(id)
+  }
+
+  async function handleFavorite(e) {
+    e.stopPropagation()
+    const res = await fetch(`/articles/${id}/favorite`, {
+      method: 'PATCH',
+      headers: { ...(API_KEY && { 'X-API-Key': API_KEY }) },
+    })
+    if (res.ok && onFavorite) {
+      const updated = await res.json()
+      onFavorite(updated)
+    }
   }
 
   return (
@@ -38,6 +50,13 @@ export default function ArticleCard({ article, onDelete }) {
             {score != null ? score : '–'}
           </span>
           <span className={`pill pill--${status}`}>{status}</span>
+          <button
+            className={`card__star${is_favorite ? ' card__star--active' : ''}`}
+            onClick={handleFavorite}
+            aria-label={is_favorite ? 'Unstar article' : 'Star article'}
+          >
+            {is_favorite ? '★' : '☆'}
+          </button>
           <button
             className="card__delete"
             onClick={handleDelete}

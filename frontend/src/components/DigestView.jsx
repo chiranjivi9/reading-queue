@@ -1,7 +1,13 @@
-import AgentTrace from './AgentTrace'
-import AgentGraph from './AgentGraph'
+import { useNavigate } from 'react-router-dom'
+
+const PREVIEW_LEN = 180
 
 export default function DigestView({ digest, onGenerate, generating }) {
+  const navigate = useNavigate()
+  const preview = digest
+    ? digest.content.slice(0, PREVIEW_LEN) + (digest.content.length > PREVIEW_LEN ? '…' : '')
+    : null
+
   return (
     <section className="digest">
       <div className="digest__header">
@@ -10,7 +16,7 @@ export default function DigestView({ digest, onGenerate, generating }) {
         </h2>
         <button
           className="digest__generate-btn"
-          onClick={onGenerate}
+          onClick={e => { e.stopPropagation(); onGenerate() }}
           disabled={generating}
         >
           {generating ? 'Running…' : digest ? 'Regenerate' : 'Generate'}
@@ -18,33 +24,16 @@ export default function DigestView({ digest, onGenerate, generating }) {
       </div>
 
       {digest ? (
-        <>
-          <pre className="digest__content">{digest.content}</pre>
-
-          {digest.suggested_articles?.length > 0 && (
-            <div className="digest__suggested">
-              <p className="digest__suggested-heading">Also worth reading — found by the Discovery agent</p>
-              <ul className="digest__suggested-list">
-                {digest.suggested_articles.map((a, i) => (
-                  <li key={i} className="digest__suggested-item">
-                    <a href={a.url} target="_blank" rel="noreferrer" className="digest__suggested-title">
-                      {a.title}
-                    </a>
-                    <p className="digest__suggested-reason">{a.reason}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <AgentGraph trace={digest.trace} />
-          <AgentTrace trace={digest.trace} />
-        </>
+        <div className="digest__preview" onClick={() => navigate('/digest')} role="button" tabIndex={0}
+             onKeyDown={e => e.key === 'Enter' && navigate('/digest')}>
+          <p className="digest__preview-text">{preview}</p>
+          <span className="digest__read-more">Read full digest →</span>
+        </div>
       ) : (
         <p className="digest__empty">
           {generating
-            ? 'Agent is thinking — check back in ~30 seconds…'
-            : 'No digest yet this week. Click Generate to run the agent.'}
+            ? 'Agents are running — check back in ~30 seconds…'
+            : 'No digest yet this week. Click Generate to run the agents.'}
         </p>
       )}
     </section>

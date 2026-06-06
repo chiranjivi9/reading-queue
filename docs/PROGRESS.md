@@ -111,7 +111,7 @@ Track each step as you build. Check off tasks as you complete them.
 ## Step 10 — Authentication (Option B: API key)
 - [x] `SECRET_KEY` added to `backend/.env.example`
 - [x] `verify_api_key()` dependency added to `main.py` — checks `X-API-Key` header
-- [x] Applied to `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`
+- [x] Applied to `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`, `POST /digest/generate`
 - [x] GET routes left open (read-only, no AI cost)
 - [x] Frontend sends `X-API-Key` header on all mutating requests
 - [x] `VITE_API_KEY` read from `frontend/.env.local` (gitignored)
@@ -123,40 +123,71 @@ Track each step as you build. Check off tasks as you complete them.
 
 ## Step 11 — Agentic digest with decision log
 
-Replace the Friday cron stub with a real agent that synthesises articles, searches the web, and records every decision it makes.
+Replace the Friday cron stub with a real multi-agent system that synthesises articles, discovers new ones from the web, tracks its reasoning, and records every decision it makes.
 
 ### Backend
-
-- [ ] `TAVILY_API_KEY` and `INTERESTS` added to `.env.example`
-- [ ] `tavily-python` added to `requirements.txt`
-- [ ] `trace` column (TEXT / JSON) added to `Digest` model in `models.py`
-- [ ] `DigestResponse` schema updated to include `trace` field
-- [ ] `services/digest_agent.py` created:
-  - [ ] Tool definitions: `list_articles`, `web_search`, `save_digest`
-  - [ ] Agent loop: call Claude → execute tool → append result → repeat
-  - [ ] Trace captured: reasoning text blocks + tool call entries
-  - [ ] `save_digest` tool writes digest + trace to DB and ends loop
-- [ ] Friday cron in `main.py` replaced: calls `run_digest_agent(db)` instead of logging stub
+- [x] `TAVILY_API_KEY` and `INTERESTS` added to `.env.example`
+- [x] `tavily-python` added to `requirements.txt`
+- [x] `trace`, `themes`, `suggested_articles`, `token_usage` columns added to `Digest` model
+- [x] `DigestResponse` schema updated to include all new fields (with JSON validators)
+- [x] `services/digest_agent.py` created:
+  - [x] `_TokenUsage` class accumulates input/output/cache tokens across all API calls
+  - [x] **Discovery Agent** — finds new articles from the web via `web_search`, reports findings via `report_findings`
+  - [x] **Digest Agent** — reads saved articles + discovery output, optionally searches more, calls `save_digest`
+  - [x] Agent memory — past 4 weeks' themes extracted and passed to both agents' system prompts
+  - [x] Trace captured: reasoning text blocks + tool call entries + agent_start markers
+  - [x] `save_digest` writes digest, trace, themes, suggested_articles, token_usage to DB
+- [x] Friday cron in `main.py` replaced: calls `run_digest_agent(db)` instead of logging stub
+- [x] `POST /digest/generate` endpoint added — triggers agent in background, auth-protected, returns 202
 
 ### Frontend
-
-- [ ] `GET /digest/current` now returns `trace` — no backend route change needed (schema update handles it)
-- [ ] `DigestView.jsx` updated — passes `trace` to `AgentTrace`
-- [ ] `AgentTrace.jsx` created — expandable timeline panel (collapsed by default)
-  - [ ] Reasoning steps shown with 💭 icon
-  - [ ] Tool calls shown with 🔧 icon + tool name + brief result summary
-  - [ ] Final `save_digest` shown with ✅ icon
+- [x] `DigestView.jsx` rewritten — collapsed 180-char preview, clicking navigates to `/digest`
+- [x] `Generate / Regenerate` button added to home page DigestView
+- [x] `pages/DigestPage.jsx` created — full digest detail route (`/digest`):
+  - [x] Full markdown content
+  - [x] Token usage badge (input / output / cached tokens)
+  - [x] Timestamp (generated at)
+  - [x] Regenerate button
+  - [x] "Also worth reading" section (Discovery agent picks)
+  - [x] Clickable Mermaid flowchart of agent tool calls (`AgentGraph.jsx`)
+  - [x] Expandable step-by-step trace (`AgentTrace.jsx`)
+  - [x] `StepModal.jsx` popup on node click — shows query, result, agent badge
+- [x] `AgentGraph.jsx` rewritten — Mermaid with `securityLevel: 'loose'`, clickable nodes via `window.__agGraphClick`
+- [x] `StepModal.jsx` created — overlay popup for tool call details
+- [x] `App.jsx` updated — added `/digest` route, wires `handleGenerateDigest` with polling
 
 ### Config
-
-- [ ] `TAVILY_API_KEY` set in `backend/.env`
-- [ ] `INTERESTS` optionally set in `backend/.env` (default used if not set)
+- [x] `TAVILY_API_KEY` set in `backend/.env`
+- [x] `INTERESTS` optionally set in `backend/.env`
 
 ---
 
-## Done!
+## Step 12 — History & Favorites (planned)
+
+Give the app long-term memory: browse all past digests and pin the articles worth keeping.
+
+### Backend
+- [ ] `is_favorite` column added to `Article` model (boolean, default false)
+- [ ] Migration: `ALTER TABLE articles ADD COLUMN is_favorite BOOLEAN DEFAULT 0`
+- [ ] `PATCH /articles/{id}/favorite` — toggles `is_favorite`, auth-protected
+- [ ] `GET /digest/all` — returns all digests ordered by week DESC (id, week_number, content preview, created_at)
+
+### Frontend
+- [ ] Star button on `ArticleCard` — calls PATCH, updates local state optimistically
+- [ ] `pages/HistoryPage.jsx` created — route `/history`:
+  - [ ] "Favorited Articles" section at top
+  - [ ] "Past Digests" list — week number, timestamp, content preview, click to read
+- [ ] Clicking a past digest navigates to `/digest/:id` (parameterised DigestPage)
+- [ ] `DigestPage.jsx` updated to accept optional `:id` param — falls back to `/digest/current` if no id
+
+---
+
+## Done when:
 - [ ] Full end-to-end test: paste URL → processing → ready → digest generated
-- [ ] Agent trace visible in UI below digest
+- [ ] Agent trace and graph visible in DigestPage
+- [ ] Token usage displayed correctly
 - [ ] Rate limiting verified (429 after limit)
 - [ ] Authentication verified (401 without credentials)
+- [ ] History page shows all past digests
+- [ ] Favorites persist across page reloads
 - [ ] README instructions verified accurate

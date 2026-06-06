@@ -43,6 +43,28 @@ MAX_ITERATIONS = 10
 DEFAULT_INTERESTS = "agentic systems, AI/ML, LLM engineering, software architecture"
 
 
+class _TokenUsage:
+    """Accumulates token counts across all API calls in one digest run."""
+    __slots__ = ("input_tokens", "output_tokens", "cache_read", "cache_creation")
+
+    def __init__(self):
+        self.input_tokens = self.output_tokens = self.cache_read = self.cache_creation = 0
+
+    def add(self, usage) -> None:
+        self.input_tokens  += getattr(usage, "input_tokens", 0) or 0
+        self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+        self.cache_read    += getattr(usage, "cache_read_input_tokens", 0) or 0
+        self.cache_creation += getattr(usage, "cache_creation_input_tokens", 0) or 0
+
+    def to_dict(self) -> dict:
+        return {
+            "input_tokens": self.input_tokens,
+            "output_tokens": self.output_tokens,
+            "cache_read_tokens": self.cache_read,
+            "cache_creation_tokens": self.cache_creation,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -205,6 +227,7 @@ async def run_discovery_agent(
     articles_text: str,
     memory: str,
     trace: list,
+    usage: _TokenUsage,
 ) -> list[dict]:
     """
     Agent 1: searches the web and returns a list of suggested articles.
@@ -226,6 +249,7 @@ async def run_discovery_agent(
             tools=_DISCOVERY_TOOLS,
             messages=messages,
         )
+        usage.add(response.usage)
 
         for block in response.content:
             if block.type == "text" and block.text.strip():
@@ -338,6 +362,7 @@ async def run_digest_agent_step(
     memory: str,
     suggested: list[dict],
     trace: list,
+    usage: _TokenUsage,
 ) -> str | None:
     """
     Agent 2: synthesises articles + discovery findings into the weekly digest.
@@ -362,6 +387,7 @@ async def run_digest_agent_step(
             tools=_DIGEST_TOOLS,
             messages=messages,
         )
+        usage.add(response.usage)
 
         for block in response.content:
             if block.type == "text" and block.text.strip():
@@ -455,15 +481,16 @@ async def run_digest_agent(db: AsyncSession) -> None:
     logger.info("Memory: %s", memory[:100])
 
     trace: list[dict] = []
+    usage = _TokenUsage()
 
     # --- Agent 1: Discovery ---
     logger.info("Starting Discovery agent for week %d", week_number)
-    suggested = await run_discovery_agent(db, articles_text, memory, trace)
+    suggested = await run_discovery_agent(db, articles_text, memory, trace, usage)
     logger.info("Discovery found %d suggested article(s).", len(suggested))
 
     # --- Agent 2: Digest ---
     logger.info("Starting Digest agent for week %d", week_number)
-    digest_content = await run_digest_agent_step(articles_text, memory, suggested, trace)
+    digest_content = await run_digest_agent_step(articles_text, memory, suggested, trace, usage)
 
     if not digest_content:
         logger.warning("Digest agent produced no content for week %d.", week_number)
@@ -475,6 +502,7 @@ async def run_digest_agent(db: AsyncSession) -> None:
         content=digest_content,
         trace=json.dumps(trace),
         suggested_articles=json.dumps(suggested),
+        token_usage=json.dumps(usage.to_dict()),
     )
     db.add(digest)
     await db.commit()

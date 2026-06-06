@@ -8,14 +8,14 @@ React app (Vite dev server :5173 / built files in prod)
        ▼
 FastAPI app (main.py :8000)
   ├── Routes         → validate input, return responses
-  ├── BackgroundTask → process_article() pipeline
+  ├── BackgroundTask → process_article() pipeline + digest generation
   ├── APScheduler    → Friday 6pm: run_digest_agent()
   ├── database.py    → async SQLAlchemy session
   ├── models.py      → ORM table definitions
   └── services/
         ├── extractor.py     → Trafilatura article extraction
         ├── summariser.py    → Claude API: summarise + score
-        └── digest_agent.py  → Agentic digest: tool loop + Tavily
+        └── digest_agent.py  → Multi-agent digest: Discovery + Digest agents
 ```
 
 **Local dev flow:**
@@ -36,6 +36,8 @@ FastAPI app (main.py :8000)
 - React + Vite chosen for frontend: component model, React Router for detail pages
 - Prompt caching: article text sent with `cache_control: ephemeral` so follow-up chat questions reuse the cached context at ~10% cost
 - Agent decision log stored as JSON in the `digests.trace` column — makes the agent loop observable without a separate tracing system
+- Multi-agent pattern: two specialised agents (Discovery + Digest) run sequentially, each with their own system prompt and tool set
+- Token usage accumulated across all agent API calls and stored alongside the digest
 
 ---
 
@@ -53,6 +55,7 @@ FastAPI app (main.py :8000)
 | `score_reason` | TEXT | One sentence explaining the score |
 | `full_text` | TEXT | Raw extracted article content |
 | `status` | TEXT | Enum: `pending` / `processing` / `ready` / `failed` |
+| `is_favorite` | BOOLEAN | Default false — user-starred articles *(planned)* |
 | `created_at` | DATETIME | UTC, set on insert |
 | `week_number` | INTEGER | ISO week number (for weekly grouping) |
 
@@ -64,7 +67,12 @@ FastAPI app (main.py :8000)
 | `week_number` | INTEGER | ISO week number |
 | `content` | TEXT | Markdown-formatted digest |
 | `trace` | TEXT | JSON array of agent steps (see §8) |
+| `themes` | TEXT | JSON array of 2–4 keyword themes extracted from digest |
+| `suggested_articles` | TEXT | JSON array of `{ title, url, reason }` from Discovery Agent |
+| `token_usage` | TEXT | JSON: `{ input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens }` |
 | `created_at` | DATETIME | UTC, set on insert |
+
+**Schema migrations:** New columns added via `ALTER TABLE ... ADD COLUMN` in `init_db()` (try/except loop) — SQLite-compatible, idempotent, runs on every startup.
 
 ---
 
@@ -73,7 +81,7 @@ FastAPI app (main.py :8000)
 ### POST /articles
 Add a new article URL.
 
-**Auth:** `X-API-Key` header required (skipped in dev when `SECRET_KEY` not set)
+**Auth:** `X-API-Key` header required  
 **Rate limit:** 20/hour per IP
 
 **Request body:**
@@ -86,90 +94,74 @@ Add a new article URL.
 { "id": 1, "url": "https://...", "status": "pending" }
 ```
 
-**Errors:**
-- `422` — invalid URL format
-- `401` — missing or invalid API key
-- `429` — rate limit exceeded
+**Errors:** `422` invalid URL, `401` bad key, `429` rate limit
 
 ---
 
 ### GET /articles
-List all articles for the current ISO week.
-
-**Response:**
-```json
-[
-  {
-    "id": 1,
-    "url": "https://...",
-    "title": "Article title",
-    "summary": "2-3 sentence summary...",
-    "score": 9,
-    "score_reason": "Directly covers LLM fine-tuning techniques.",
-    "status": "ready",
-    "created_at": "2025-06-04T10:00:00"
-  }
-]
-```
-
-Ordered by `score DESC` (nulls last).
+List all articles for the current ISO week, ordered by score DESC.
 
 ---
 
 ### GET /articles/{id}
 Get a single article including `full_text`.
 
-**Errors:**
-- `404` — article not found
+**Errors:** `404` not found
 
 ---
 
 ### DELETE /articles/{id}
 Hard delete an article.
 
-**Auth:** `X-API-Key` header required
-
+**Auth:** `X-API-Key` required  
 **Response:** `204 No Content`
 
-**Errors:**
-- `404` — article not found
+---
+
+### PATCH /articles/{id}/favorite *(planned)*
+Toggle `is_favorite` on an article.
+
+**Auth:** `X-API-Key` required  
+**Response:** updated article object
 
 ---
 
 ### POST /articles/{id}/chat
 Chat with an article using Claude.
 
-**Auth:** `X-API-Key` header required
+**Auth:** `X-API-Key` required  
 **Rate limit:** 30/hour per IP
 
 **Request body:**
 ```json
 {
   "messages": [
-    { "role": "user", "content": "What is the main argument?" },
-    { "role": "assistant", "content": "The article argues..." },
-    { "role": "user", "content": "Can you give an example?" }
+    { "role": "user", "content": "What is the main argument?" }
   ]
 }
 ```
 
 **Response:**
 ```json
-{ "reply": "Sure, one example given is..." }
+{ "reply": "The article argues..." }
 ```
 
-**Errors:**
-- `404` — article not found
-- `400` — article not yet processed (status ≠ ready)
+**Model:** `claude-sonnet-4-6` with prompt caching on article text.
 
-**Model:** `claude-sonnet-4-6`
+---
 
-**How caching works:** The article's `full_text` is placed in the system prompt with `cache_control: ephemeral`. Each request in the same session reuses the cached system prompt — only the new user message is billed at full price.
+### POST /digest/generate
+Trigger the digest agent in the background immediately.
+
+**Auth:** `X-API-Key` required  
+**Response:** `202 Accepted`
+
+The UI polls `GET /digest/current` every 3 seconds until a new digest appears. Timeout: 120 seconds.
 
 ---
 
 ### GET /digest/current
-Get this week's digest including the agent trace.
+Get this week's digest including the full agent trace and token usage.
 
 **Response:**
 ```json
@@ -178,81 +170,127 @@ Get this week's digest including the agent trace.
   "week_number": 23,
   "content": "# Week 23 Digest\n...",
   "trace": [
-    { "type": "reasoning", "content": "Let me look at this week's articles first." },
-    { "type": "tool_call", "tool": "list_articles", "input": {}, "summary": "Found 5 articles" },
-    { "type": "reasoning", "content": "I see a theme around agentic systems. I'll search for more context." },
-    { "type": "tool_call", "tool": "web_search", "input": { "query": "agentic AI 2025" }, "summary": "3 results found" },
-    { "type": "tool_call", "tool": "save_digest", "input": { "content": "..." }, "summary": "Digest saved" }
+    { "type": "agent_start", "agent": "discovery", "summary": "Discovery Agent starting" },
+    { "type": "reasoning", "agent": "discovery", "content": "Let me search for related articles." },
+    { "type": "tool_call", "agent": "discovery", "tool": "web_search", "input": { "query": "agentic AI 2025" }, "summary": "3 results found" },
+    { "type": "tool_call", "agent": "discovery", "tool": "report_findings", "summary": "2 articles suggested" },
+    { "type": "agent_start", "agent": "digest", "summary": "Digest Agent starting" },
+    { "type": "tool_call", "agent": "digest", "tool": "save_digest", "summary": "Digest saved" }
   ],
-  "created_at": "..."
+  "suggested_articles": [
+    { "title": "...", "url": "https://...", "reason": "Directly relevant to agentic systems theme" }
+  ],
+  "token_usage": {
+    "input_tokens": 12400,
+    "output_tokens": 1850,
+    "cache_read_tokens": 4200,
+    "cache_creation_tokens": 800
+  },
+  "created_at": "2025-06-06T18:00:00"
 }
 ```
+
 or `null` if no digest generated yet this week.
+
+---
+
+### GET /digest/all *(planned)*
+List all digests, ordered by week DESC.
+
+**Response:**
+```json
+[
+  { "id": 3, "week_number": 23, "content": "# Week 23...", "created_at": "..." },
+  { "id": 2, "week_number": 22, "content": "# Week 22...", "created_at": "..." }
+]
+```
 
 ---
 
 ## 4. Component Design
 
 ### `models.py`
-Defines SQLAlchemy ORM models (`Article`, `Digest`). `Digest` includes a `trace` TEXT column storing JSON.
+Defines SQLAlchemy ORM models (`Article`, `Digest`). `Digest` has `trace`, `themes`, `suggested_articles`, and `token_usage` TEXT columns storing JSON.
 
 ### `database.py`
 - Creates the async SQLAlchemy engine from `DATABASE_URL`
 - Provides `get_db()` — async generator injecting a session into route handlers
-- `init_db()` — creates all tables on startup
+- `init_db()` — creates all tables + runs idempotent `ALTER TABLE` migrations for new columns
 
 ### `services/extractor.py`
-
 ```
 extract_article(url: str) -> dict
-  └── trafilatura.fetch_url(url)       # download page
-  └── trafilatura.extract(downloaded)  # extract clean text
+  └── trafilatura.fetch_url(url)
+  └── trafilatura.extract(downloaded)
   └── return { "title": ..., "text": ... }
   └── raises ExtractorError if failed
 ```
 
-Timeout: 10 seconds.
-
 ### `services/summariser.py`
-
 ```
 summarise(title: str, text: str) -> dict
-  └── build two content blocks:
-        block 1 — article title + first ~4000 chars of text (cache_control: ephemeral)
-        block 2 — static scoring instruction (not cached)
-  └── call anthropic client (claude-sonnet-4-6)
-  └── parse JSON from response (strip markdown fences if present)
-  └── return { "summary": ..., "score": ..., "score_reason": ... }
+  └── article text block with cache_control: ephemeral
+  └── call claude-sonnet-4-6
+  └── parse JSON: { summary, score, score_reason }
 ```
 
-### `services/digest_agent.py` ← new
+### `services/digest_agent.py`
 
-See §8 for full design. Public interface:
-
+Public interface:
 ```
 run_digest_agent(db: AsyncSession) -> None
   └── fetch this week's articles from DB
-  └── run agentic loop (Claude + tools)
-  └── save digest + trace to digests table
+  └── fetch agent memory (past 4 weeks' themes)
+  └── run Discovery Agent → list of suggested articles
+  └── run Digest Agent   → final digest content
+  └── extract themes from digest (single Claude call)
+  └── save digest, trace, themes, suggested_articles, token_usage to DB
 ```
+
+**`_TokenUsage` class** — accumulates input/output/cache tokens across every API call in both agents. Stored as JSON in `digests.token_usage`.
+
+**Discovery Agent** (`run_discovery_agent`)
+- Tools: `web_search`, `report_findings`
+- System prompt includes user interests + past themes
+- Returns list of `{ title, url, reason }` suggested articles
+
+**Digest Agent** (`run_digest_agent_step`)
+- Tools: `web_search`, `save_digest`
+- System prompt includes user interests + past themes + Discovery findings
+- Returns final digest markdown string
+
+**Agent memory** (`_fetch_memory`)
+- Loads last 4 weeks' themes from DB
+- Formatted as bullet list in both agents' system prompts
+- Prevents the digest from repeating the same angles week over week
+
+**Theme extraction** (`_extract_and_save_themes`)
+- Single Claude call after digest is written
+- Extracts 2–4 keyword themes from the digest content
+- Stored in `digests.themes` for future memory retrieval
 
 ### `main.py`
 
 Route handlers (thin — delegate to services).
 
-APScheduler: Friday 6pm cron job calls `run_digest_agent`.
+APScheduler: Friday 6pm cron calls `run_digest_agent`.
+
+`POST /digest/generate`: triggers `run_digest_agent` via `BackgroundTasks`, auth-protected.
 
 Rate limiting: `slowapi`, per IP, in-memory store.
 
 Auth: `verify_api_key` FastAPI dependency on mutating routes.
 
-Static files: `frontend/dist/` served by FastAPI in production. Catch-all `/{full_path:path}` route returns `index.html` for React Router paths. Paths are resolved and checked against dist root before serving (path traversal safe).
+Static files: `frontend/dist/` served in production. Catch-all `/{full_path:path}` resolves and validates paths against dist root before serving (path traversal safe). **This route must be last — otherwise it intercepts API POST routes.**
 
 ### `frontend/` — React + Vite + React Router
 
 **Routing:**
-- `/` — home (article list + add form + digest)
+- `/` — home (article list + add form + digest preview)
 - `/articles/:id` — article detail page (summary + chat)
+- `/digest` — current week's full digest page
+- `/digest/:id` — past digest by id *(planned)*
+- `/history` — all past digests + favourited articles *(planned)*
 
 **Shared utilities:**
 - `utils.js` — `getDomain(url)` and `scoreBadgeClass(score)`
@@ -260,15 +298,20 @@ Static files: `frontend/dist/` served by FastAPI in production. Catch-all `/{ful
 **Components:**
 - `main.jsx` — entry point, wraps app in `<BrowserRouter>`
 - `App.jsx` — defines routes, home page state (articles, digest, toast), polling every 5s
-- `AddArticle.jsx` — URL input + submit, sends `X-API-Key` header
-- `ArticleCard.jsx` — title, domain, score badge, status pill, delete; clicking navigates to detail
-- `DigestView.jsx` — renders this week's digest markdown; below digest, renders `<AgentTrace>`
-- `AgentTrace.jsx` — expandable panel showing each agent step as a timeline ← new
-- `pages/ArticleDetailPage.jsx` — full summary, score reason, chat interface
+- `AddArticle.jsx` — URL input + submit
+- `ArticleCard.jsx` — title, domain, score badge, status pill, delete, star button *(star planned)*
+- `DigestView.jsx` — collapsed 180-char preview on home page; clicking navigates to `/digest`
+- `AgentGraph.jsx` — Mermaid flowchart of agent tool call sequence; `securityLevel: 'loose'` enables click callbacks; `window.__agGraphClick` wired to `onNodeClick` prop
+- `AgentTrace.jsx` — expandable timeline of all agent steps with agent badges
+- `StepModal.jsx` — overlay popup showing step details (query, result, agent badge)
+- `pages/ArticleDetailPage.jsx` — full summary + chat interface
+- `pages/DigestPage.jsx` — full digest view: content, token usage, timestamp, regenerate button, discovery picks, clickable agent graph, expandable trace, step modal
+- `pages/HistoryPage.jsx` *(planned)* — past digests list + favourited articles
 
 **Data flow:**
 - `App.jsx` fetches `GET /articles` on load and every 5 seconds
-- `App.jsx` fetches `GET /digest/current` and passes both `content` and `trace` to `DigestView`
+- `App.jsx` fetches `GET /digest/current` on load
+- `DigestPage.jsx` fetches `GET /digest/current` independently on mount
 - Chat history kept in local state — each POST /chat sends the full `messages` array
 
 ---
@@ -310,9 +353,9 @@ update article: title, summary, score,
 ## 6. Security
 
 ### Authentication
-`APIKeyHeader` FastAPI dependency checks `X-API-Key` against `SECRET_KEY` env var.
-Skipped entirely when `SECRET_KEY` is not set — no friction in local dev.
-Applied to: `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`.
+`APIKeyHeader` FastAPI dependency checks `X-API-Key` against `SECRET_KEY` env var.  
+Skipped entirely when `SECRET_KEY` is not set — no friction in local dev.  
+Applied to: `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`, `POST /digest/generate`.  
 GET routes are open (read-only, no AI cost).
 
 ### Rate limiting
@@ -352,117 +395,97 @@ Controlled by `CORS_ORIGINS` env var. Defaults to localhost origins in dev; set 
 
 ---
 
-## 8. Agentic Digest — Design
+## 8. Multi-Agent Digest — Design
 
 ### Overview
 
-The digest is generated by an agent loop: Claude is given tools and decides what to call, in what order, until it is ready to write the final digest.
+The digest is generated by two specialised agents run sequentially. Each agent has its own system prompt, tool set, and responsibility.
 
 ```
-System prompt: user interests + instructions
+fetch this week's articles + past themes (memory)
       │
       ▼
-Claude reasons → calls list_articles
+Discovery Agent
+  ├── web_search × N   (finds new articles not in queue)
+  └── report_findings  (returns curated list → exits)
       │
       ▼
-Claude reads articles, spots themes
-      │
-      ├── (optional) calls web_search one or more times
+Digest Agent
+  ├── web_search × N   (optional additional context)
+  └── save_digest      (writes final digest → exits)
       │
       ▼
-Claude calls save_digest → loop ends
+Theme extraction (single Claude call)
+      │
+      ▼
+Save to DB: content, trace, themes, suggested_articles, token_usage
 ```
 
-This is a "tool-use agentic loop" — the fundamental agent pattern. Claude drives the sequence; our code executes whatever tool it asks for.
+### Agent memory
+
+After each digest, `_extract_and_save_themes` extracts 2–4 keyword themes.  
+`_fetch_memory` loads the last 4 weeks' themes and formats them into both agents' system prompts.  
+This ensures the digest finds new angles each week rather than repeating itself.
+
+### Token tracking
+
+`_TokenUsage` accumulates `input_tokens`, `output_tokens`, `cache_read_input_tokens`, and `cache_creation_input_tokens` from every `response.usage` object across both agents. The final totals are stored as JSON in `digests.token_usage` and displayed in the UI.
 
 ### Tools
 
-**`list_articles`**
-- No input
-- Returns: array of `{ title, url, summary, score, score_reason }` for all ready articles this week
-- The agent always calls this first
+**`list_articles`** (Digest Agent only)
+- Returns all ready articles this week: `{ title, url, summary, score, score_reason }`
 
-**`web_search`**
+**`web_search`** (both agents)
 - Input: `{ "query": string }`
-- Calls Tavily API, returns top 3 results as `{ title, url, snippet }`
-- Agent decides if and when to call it, and what to search for
-- Typically called 0–3 times per digest
+- Calls Tavily AsyncTavilyClient, returns top 3 results as `{ title, url, snippet }`
 
-**`save_digest`**
+**`report_findings`** (Discovery Agent)
+- Input: `{ "articles": [{ title, url, reason }] }`
+- Ends the Discovery Agent loop and passes findings to the Digest Agent
+
+**`save_digest`** (Digest Agent)
 - Input: `{ "content": string }` — markdown-formatted digest
-- Saves to `digests` table and signals end of loop (no further tool calls after this)
+- Saves to DB and signals end of Digest Agent loop
 
-### Decision log (trace)
+### Trace format
 
-Every step of the agent loop is recorded as a list of trace entries:
+Every step from both agents is recorded in a single flat trace array:
 
 ```json
 [
-  { "type": "reasoning", "content": "Let me look at this week's articles." },
-  { "type": "tool_call", "tool": "list_articles", "input": {}, "summary": "5 articles found" },
-  { "type": "reasoning", "content": "Themes: AI agents, Python tooling. I'll search for agent context." },
-  { "type": "tool_call", "tool": "web_search", "input": { "query": "..." }, "summary": "3 results" },
-  { "type": "tool_call", "tool": "save_digest", "input": { "content": "..." }, "summary": "Digest saved" }
+  { "type": "agent_start", "agent": "discovery", "summary": "Discovery Agent starting" },
+  { "type": "reasoning",   "agent": "discovery", "content": "I'll search for agentic AI articles." },
+  { "type": "tool_call",   "agent": "discovery", "tool": "web_search", "input": { "query": "..." }, "summary": "3 results" },
+  { "type": "tool_call",   "agent": "discovery", "tool": "report_findings", "summary": "2 articles found" },
+  { "type": "agent_start", "agent": "digest",    "summary": "Digest Agent starting" },
+  { "type": "reasoning",   "agent": "digest",    "content": "Strong theme around multi-agent systems." },
+  { "type": "tool_call",   "agent": "digest",    "tool": "save_digest", "summary": "Digest saved" }
 ]
 ```
 
-Reasoning entries come from Claude's text blocks returned before tool calls. Tool call entries are built from the `tool_use` content blocks. The trace is serialised to JSON and stored in `digests.trace`.
-
-### Agent loop implementation sketch
-
-```python
-# services/digest_agent.py
-
-tools = [list_articles_tool, web_search_tool, save_digest_tool]
-messages = []
-trace = []
-
-while True:
-    response = await client.messages.create(
-        model="claude-opus-4-7",
-        system=build_system_prompt(),   # includes INTERESTS
-        tools=tools,
-        messages=messages,
-    )
-
-    # Capture reasoning text the model emitted before tool calls
-    for block in response.content:
-        if block.type == "text" and block.text.strip():
-            trace.append({"type": "reasoning", "content": block.text})
-
-    if response.stop_reason == "end_turn":
-        break   # model finished without calling a tool — shouldn't happen but safe
-
-    # Execute each tool the model requested
-    tool_results = []
-    for block in response.content:
-        if block.type == "tool_use":
-            result, trace_entry = await execute_tool(block.name, block.input)
-            trace.append(trace_entry)
-            tool_results.append(build_tool_result(block.id, result))
-            if block.name == "save_digest":
-                return  # digest saved, done
-
-    # Append assistant turn + tool results and loop
-    messages.append({"role": "assistant", "content": response.content})
-    messages.append({"role": "user", "content": tool_results})
-```
-
-### Frontend: AgentTrace component
-
-Displayed below the digest content in `DigestView.jsx`.
+### Frontend: DigestPage
 
 ```
-┌─ How the agent thought ─────────────────────── [expand ▼] ┐
-│                                                             │
-│  💭 "Let me look at this week's articles first."           │
-│  🔧 list_articles → Found 5 articles                       │
-│  💭 "Strong theme around agentic systems. I'll search..."  │
-│  🔧 web_search("agentic AI 2025") → 3 results              │
-│  💭 "I have enough context. Writing digest now."           │
-│  ✅ save_digest → Done                                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─ ← Back                                   [Regenerate] ─┐
+│                                                           │
+│  Week 23 Digest                                          │
+│  Fri, Jun 6, 6:00 PM  ·  14,250 tokens  ·  1,850 out   │
+│                                                           │
+│  [Full markdown digest content]                           │
+│                                                           │
+│  Also worth reading (Discovery Agent picks)              │
+│  ──────────────────────────────────────                  │
+│  • Article title — reason it was picked                  │
+│                                                           │
+│  Agent flow (clickable Mermaid graph)                    │
+│  ──────────────────────────────────────                  │
+│  [Discovery Agent] → [web_search] → [report_findings]   │
+│  → [Digest Agent] → [save_digest]                       │
+│                                                           │
+│  ▼ Agent trace (expandable timeline)                     │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
 ```
 
-Collapsed by default. Each step shows icon, action, and brief summary.
+Clicking any graph node opens `StepModal` — a popup showing: tool name, agent badge, query input, and result summary.

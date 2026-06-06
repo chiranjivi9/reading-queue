@@ -41,6 +41,7 @@ from src.schemas import (
     ArticleResponse,
     ChatRequest,
     ChatResponse,
+    DigestListItem,
     DigestResponse,
 )
 from src.services.digest_agent import run_digest_agent
@@ -219,6 +220,17 @@ async def list_articles(db: AsyncSession = Depends(get_db)):
     return result.scalars().all()
 
 
+@app.get("/articles/favorites", response_model=list[ArticleResponse])
+async def list_favorites(db: AsyncSession = Depends(get_db)):
+    """Return all favorited articles across all weeks, sorted by score descending."""
+    result = await db.execute(
+        select(Article)
+        .where(Article.is_favorite == True)  # noqa: E712
+        .order_by(Article.score.desc().nulls_last())
+    )
+    return result.scalars().all()
+
+
 @app.get("/articles/{article_id}", response_model=ArticleDetailResponse)
 async def get_article(article_id: int, db: AsyncSession = Depends(get_db)):
     """Return a single article including its full extracted text."""
@@ -310,6 +322,44 @@ async def trigger_digest(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(_run)
     return {"status": "started", "message": "Digest agent running — poll GET /digest/current for the result."}
+
+
+@app.get("/digest/all", response_model=list[DigestListItem])
+async def list_digests(db: AsyncSession = Depends(get_db)):
+    """Return all digests ordered by week descending."""
+    result = await db.scalars(select(Digest).order_by(Digest.week_number.desc()))
+    return result.all()
+
+
+@app.get("/digest/{digest_id}", response_model=DigestResponse)
+async def get_digest(digest_id: int, db: AsyncSession = Depends(get_db)):
+    """Return a specific digest by id."""
+    digest = await db.get(Digest, digest_id)
+    if not digest:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    return digest
+
+
+@app.delete("/digest/{digest_id}", status_code=204, dependencies=[Depends(verify_api_key)])
+async def delete_digest(digest_id: int, db: AsyncSession = Depends(get_db)):
+    """Hard delete a digest by id."""
+    digest = await db.get(Digest, digest_id)
+    if not digest:
+        raise HTTPException(status_code=404, detail="Digest not found")
+    await db.delete(digest)
+    await db.commit()
+
+
+@app.patch("/articles/{article_id}/favorite", response_model=ArticleResponse,
+           dependencies=[Depends(verify_api_key)])
+async def toggle_favorite(article_id: int, db: AsyncSession = Depends(get_db)):
+    """Toggle is_favorite on an article."""
+    article = await db.get(Article, article_id)
+    if not article:
+        raise HTTPException(status_code=404, detail="Article not found")
+    article.is_favorite = not article.is_favorite
+    await db.commit()
+    return article
 
 
 # ---------------------------------------------------------------------------
