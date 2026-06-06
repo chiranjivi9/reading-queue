@@ -12,7 +12,10 @@ Public API:
 
 import asyncio
 
+import httpx
 import trafilatura
+
+JINA_BASE = "https://r.jina.ai/"
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +79,39 @@ def _fetch_and_extract(url: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Jina Reader fallback
+# ---------------------------------------------------------------------------
+
+async def _extract_via_jina(url: str) -> dict:
+    """
+    Fallback extractor using Jina Reader (r.jina.ai).
+
+    Jina fetches and renders the page server-side, bypassing bot detection
+    used by sites like Medium. Returns plain text with a title header.
+    Free tier, no API key required.
+    """
+    jina_url = JINA_BASE + url
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        resp = await client.get(jina_url, headers={"Accept": "text/plain"})
+    if resp.status_code != 200:
+        raise ExtractorError(f"Jina Reader failed ({resp.status_code}) for: {url}")
+
+    text = resp.text.strip()
+    if not text:
+        raise ExtractorError(f"Jina Reader returned empty content for: {url}")
+
+    # Jina returns "Title: <title>\n..." as the first line
+    lines = text.splitlines()
+    title = url
+    for line in lines[:5]:
+        if line.startswith("Title:"):
+            title = line.removeprefix("Title:").strip()
+            break
+
+    return {"title": title, "text": text}
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -83,31 +119,21 @@ async def extract_article(url: str) -> dict:
     """
     Fetch and extract clean article text from a URL.
 
-    Args:
-        url: The article URL to extract content from.
-
-    Returns:
-        dict with keys:
-            "title" (str): The article title, or the URL if no title found.
-            "text"  (str): The clean article body text.
-
-    Raises:
-        ExtractorError: If the page cannot be downloaded or no article
-                        text can be extracted from it.
-
-    Why asyncio.to_thread()?
-        Trafilatura is a synchronous library — it blocks while downloading
-        and parsing. Calling it directly in an async function would freeze
-        the entire server during that time. asyncio.to_thread() runs it in
-        a separate thread, keeping the event loop free to handle other requests.
+    Tries Trafilatura first (fast, local). If it fails — e.g. the site
+    blocks server-side requests (Medium, etc.) — falls back to Jina Reader,
+    which renders the page remotely and returns plain text.
     """
     try:
-        result = await asyncio.to_thread(_fetch_and_extract, url)
-        return result
+        return await asyncio.to_thread(_fetch_and_extract, url)
     except ExtractorError:
-        # re-raise our own exceptions unchanged
+        pass  # fall through to Jina
+    except Exception:
+        pass
+
+    # Jina fallback
+    try:
+        return await _extract_via_jina(url)
+    except ExtractorError:
         raise
     except Exception as e:
-        # wrap unexpected errors (network timeouts, parsing crashes, etc.)
-        # so the caller always gets a clean ExtractorError
         raise ExtractorError(f"Unexpected error extracting {url}: {e}") from e
