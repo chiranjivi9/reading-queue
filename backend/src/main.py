@@ -12,6 +12,7 @@ Security:
     unexpected cost spikes. Limit is kept in memory (resets on restart).
 """
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -149,32 +150,45 @@ async def process_article(article_id: int) -> None:
     """
     Extract and summarise an article after it has been inserted.
 
-    Runs in the background after POST /articles returns. Creates its own
-    DB session because the request session is closed by the time this runs.
+    Retries extraction up to 3 times with exponential backoff before
+    giving up and marking the article as failed.
     """
+    MAX_ATTEMPTS = 3
+    BACKOFF = [0, 5, 15]  # seconds to wait before each attempt
+
     async with AsyncSessionLocal() as db:
         article = await db.get(Article, article_id)
         if not article:
             return
 
-        try:
-            article.status = ArticleStatus.PROCESSING.value
-            await db.commit()
+        article.status = ArticleStatus.PROCESSING.value
+        await db.commit()
 
-            extracted = await extract_article(str(article.url))
-            summarised = await summarise(extracted["title"], extracted["text"])
+        last_error = None
+        for attempt in range(MAX_ATTEMPTS):
+            if BACKOFF[attempt]:
+                await asyncio.sleep(BACKOFF[attempt])
+            try:
+                extracted = await extract_article(str(article.url))
+                summarised = await summarise(extracted["title"], extracted["text"])
 
-            article.title = extracted["title"]
-            article.full_text = extracted["text"]
-            article.summary = summarised["summary"]
-            article.score = summarised["score"]
-            article.score_reason = summarised["score_reason"]
-            article.status = ArticleStatus.READY.value
+                article.title = extracted["title"]
+                article.full_text = extracted["text"]
+                article.summary = summarised["summary"]
+                article.score = summarised["score"]
+                article.score_reason = summarised["score_reason"]
+                article.status = ArticleStatus.READY.value
+                await db.commit()
+                return
 
-        except (ExtractorError, SummariserError) as e:
-            logger.error("Failed to process article %d: %s", article_id, e)
-            article.status = ArticleStatus.FAILED.value
+            except (ExtractorError, SummariserError) as e:
+                last_error = e
+                logger.warning("Article %d attempt %d/%d failed: %s",
+                               article_id, attempt + 1, MAX_ATTEMPTS, e)
 
+        logger.error("Article %d permanently failed after %d attempts: %s",
+                     article_id, MAX_ATTEMPTS, last_error)
+        article.status = ArticleStatus.FAILED.value
         await db.commit()
 
 
