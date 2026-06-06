@@ -1,0 +1,33 @@
+app = "sunlit-grove-996"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+  [build.args]
+    # VITE_API_KEY must match SECRET_KEY below — it gets baked into the JS bundle at build time.
+    # Set it with: fly secrets set --stage VITE_API_KEY=<your-key>
+    # (Fly build secrets are injected at build time and not stored in plain text)
+
+[env]
+  DATABASE_URL = "sqlite+aiosqlite:////app/data/articles.db"
+
+[[mounts]]
+  source = "sqlite_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
