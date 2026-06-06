@@ -9,6 +9,10 @@ RUN npm ci
 
 # Copy source and build
 COPY frontend/ ./
+# VITE_API_KEY must be known at build time so Vite can embed it in the JS bundle.
+# Pass it with: docker compose build --build-arg VITE_API_KEY=<your-key>
+ARG VITE_API_KEY
+ENV VITE_API_KEY=$VITE_API_KEY
 RUN npm run build
 # Output: /app/frontend/dist/
 

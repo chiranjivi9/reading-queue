@@ -3,6 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # VITE_API_KEY is baked into the JS bundle at build time.
+        # Set it in your shell before running docker compose:
+        #   export VITE_API_KEY=<your-secret-key>
+        #   docker compose up --build
+        VITE_API_KEY: ${VITE_API_KEY:-}
     ports:
       - "8000:8000"          # API + frontend on one port
     env_file: backend/.env   # ANTHROPIC_API_KEY, SECRET_KEY, CORS_ORIGINS, etc.
