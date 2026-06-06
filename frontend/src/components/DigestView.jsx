@@ -1,4 +1,5 @@
 import AgentTrace from './AgentTrace'
+import AgentGraph from './AgentGraph'
 
 export default function DigestView({ digest, onGenerate, generating }) {
   return (
@@ -36,6 +37,7 @@ export default function DigestView({ digest, onGenerate, generating }) {
             </div>
           )}
 
+          <AgentGraph trace={digest.trace} />
           <AgentTrace trace={digest.trace} />
         </>
       ) : (

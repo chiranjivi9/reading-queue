@@ -553,6 +553,32 @@ body {
 }
 
 /* -------------------------------------------------------------------------
+   Agent graph (Mermaid flowchart)
+   ------------------------------------------------------------------------- */
+
+.agent-graph {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 0.5px solid #e0e0e0;
+}
+
+.agent-graph__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #999;
+  margin-bottom: 10px;
+}
+
+.agent-graph__canvas svg {
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  display: block;
+}
+
+/* -------------------------------------------------------------------------
    Agent trace
    ------------------------------------------------------------------------- */
 
