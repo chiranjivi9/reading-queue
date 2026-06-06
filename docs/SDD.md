@@ -9,22 +9,24 @@ React app (Vite dev server :5173 / built files in prod)
 FastAPI app (main.py :8000)
   ├── Routes         → validate input, return responses
   ├── BackgroundTask → process_article() pipeline
+  ├── APScheduler    → Friday 6pm: run_digest_agent()
   ├── database.py    → async SQLAlchemy session
   ├── models.py      → ORM table definitions
   └── services/
-        ├── extractor.py   → Trafilatura
-        └── summariser.py  → Anthropic Claude API
+        ├── extractor.py     → Trafilatura article extraction
+        ├── summariser.py    → Claude API: summarise + score
+        └── digest_agent.py  → Agentic digest: tool loop + Tavily
 ```
 
 **Local dev flow:**
-- React dev server runs on :5173, proxies `/api/*` requests to FastAPI on :8000
+- React dev server on :5173, proxies `/articles` and `/digest` to FastAPI on :8000
 - FastAPI has CORS enabled for localhost:5173
-- Two terminals: one for `uvicorn`, one for `npm run dev`
+- `./start.sh` starts both servers with one command
 
 **Production flow:**
-- React is built to `frontend/dist/`
-- Caddy serves `frontend/dist/` as static files
-- Caddy proxies `/api/*` to FastAPI container on :8000
+- React is built to `frontend/dist/` at Docker build time
+- FastAPI serves `frontend/dist/` as static files (catch-all route after all API routes)
+- Caddy (optional) terminates TLS and proxies to the container on :8000
 
 **Key design decisions:**
 - Everything async on the backend — FastAPI, SQLAlchemy, and the Anthropic client all use `async/await`
@@ -33,6 +35,7 @@ FastAPI app (main.py :8000)
 - SQLite for local dev; DATABASE_URL env var allows swapping to Postgres without code changes
 - React + Vite chosen for frontend: component model, React Router for detail pages
 - Prompt caching: article text sent with `cache_control: ephemeral` so follow-up chat questions reuse the cached context at ~10% cost
+- Agent decision log stored as JSON in the `digests.trace` column — makes the agent loop observable without a separate tracing system
 
 ---
 
@@ -60,6 +63,7 @@ FastAPI app (main.py :8000)
 | `id` | INTEGER | Primary key, auto-increment |
 | `week_number` | INTEGER | ISO week number |
 | `content` | TEXT | Markdown-formatted digest |
+| `trace` | TEXT | JSON array of agent steps (see §8) |
 | `created_at` | DATETIME | UTC, set on insert |
 
 ---
@@ -68,6 +72,9 @@ FastAPI app (main.py :8000)
 
 ### POST /articles
 Add a new article URL.
+
+**Auth:** `X-API-Key` header required (skipped in dev when `SECRET_KEY` not set)
+**Rate limit:** 20/hour per IP
 
 **Request body:**
 ```json
@@ -81,6 +88,8 @@ Add a new article URL.
 
 **Errors:**
 - `422` — invalid URL format
+- `401` — missing or invalid API key
+- `429` — rate limit exceeded
 
 ---
 
@@ -118,6 +127,8 @@ Get a single article including `full_text`.
 ### DELETE /articles/{id}
 Hard delete an article.
 
+**Auth:** `X-API-Key` header required
+
 **Response:** `204 No Content`
 
 **Errors:**
@@ -127,6 +138,9 @@ Hard delete an article.
 
 ### POST /articles/{id}/chat
 Chat with an article using Claude.
+
+**Auth:** `X-API-Key` header required
+**Rate limit:** 30/hour per IP
 
 **Request body:**
 ```json
@@ -155,24 +169,36 @@ Chat with an article using Claude.
 ---
 
 ### GET /digest/current
-Get this week's digest.
+Get this week's digest including the agent trace.
 
 **Response:**
 ```json
-{ "id": 1, "week_number": 23, "content": "# Week 23 Digest\n...", "created_at": "..." }
+{
+  "id": 1,
+  "week_number": 23,
+  "content": "# Week 23 Digest\n...",
+  "trace": [
+    { "type": "reasoning", "content": "Let me look at this week's articles first." },
+    { "type": "tool_call", "tool": "list_articles", "input": {}, "summary": "Found 5 articles" },
+    { "type": "reasoning", "content": "I see a theme around agentic systems. I'll search for more context." },
+    { "type": "tool_call", "tool": "web_search", "input": { "query": "agentic AI 2025" }, "summary": "3 results found" },
+    { "type": "tool_call", "tool": "save_digest", "input": { "content": "..." }, "summary": "Digest saved" }
+  ],
+  "created_at": "..."
+}
 ```
-or `null` if no digest generated yet.
+or `null` if no digest generated yet this week.
 
 ---
 
 ## 4. Component Design
 
 ### `models.py`
-Defines SQLAlchemy ORM models (`Article`, `Digest`). Maps Python classes to database tables. Uses `DeclarativeBase` from SQLAlchemy 2.0.
+Defines SQLAlchemy ORM models (`Article`, `Digest`). `Digest` includes a `trace` TEXT column storing JSON.
 
 ### `database.py`
 - Creates the async SQLAlchemy engine from `DATABASE_URL`
-- Provides `get_db()` — an async generator used as a FastAPI dependency to inject a database session into route handlers
+- Provides `get_db()` — async generator injecting a session into route handlers
 - `init_db()` — creates all tables on startup
 
 ### `services/extractor.py`
@@ -194,67 +220,56 @@ summarise(title: str, text: str) -> dict
   └── build two content blocks:
         block 1 — article title + first ~4000 chars of text (cache_control: ephemeral)
         block 2 — static scoring instruction (not cached)
-  └── call anthropic client (claude-sonnet-4-20250514)
+  └── call anthropic client (claude-sonnet-4-6)
   └── parse JSON from response (strip markdown fences if present)
   └── return { "summary": ..., "score": ..., "score_reason": ... }
 ```
 
-Prompt caching: the article content block is marked `cache_control: {type: "ephemeral"}`. If the same article is summarised more than once (e.g. retry after failure), the cached text is reused at ~10% input token cost.
+### `services/digest_agent.py` ← new
+
+See §8 for full design. Public interface:
+
+```
+run_digest_agent(db: AsyncSession) -> None
+  └── fetch this week's articles from DB
+  └── run agentic loop (Claude + tools)
+  └── save digest + trace to digests table
+```
 
 ### `main.py`
 
-Route handlers (thin — delegate to services):
-```
-POST /articles
-  └── validate URL
-  └── check duplicate → return existing if found
-  └── insert article (status=pending)
-  └── add background task: process_article(id)
-  └── return { id, url, status }
+Route handlers (thin — delegate to services).
 
-process_article(id)
-  └── status → "processing"
-  └── extractor.extract_article(url)
-  └── summariser.summarise(title, text)
-  └── update article fields + status → "ready"
-  └── on exception → status → "failed", log error
-```
+APScheduler: Friday 6pm cron job calls `run_digest_agent`.
 
-APScheduler: Friday 6pm cron job — logs "digest would run here" (stub).
+Rate limiting: `slowapi`, per IP, in-memory store.
+
+Auth: `verify_api_key` FastAPI dependency on mutating routes.
+
+Static files: `frontend/dist/` served by FastAPI in production. Catch-all `/{full_path:path}` route returns `index.html` for React Router paths. Paths are resolved and checked against dist root before serving (path traversal safe).
 
 ### `frontend/` — React + Vite + React Router
 
 **Routing:**
-- `/` — home (article list + add form)
+- `/` — home (article list + add form + digest)
 - `/articles/:id` — article detail page (summary + chat)
 
 **Shared utilities:**
-- `utils.js` — `getDomain(url)` and `scoreBadgeClass(score)` used by both `ArticleCard` and `ArticleDetailPage`
+- `utils.js` — `getDomain(url)` and `scoreBadgeClass(score)`
 
 **Components:**
 - `main.jsx` — entry point, wraps app in `<BrowserRouter>`
-- `App.jsx` — defines routes, home page state (articles, digest, toast), polling
-- `AddArticle.jsx` — URL input + submit button, calls POST /articles
-- `ArticleCard.jsx` — displays one article (title, domain, score badge, status pill, delete); clicking the card navigates to the detail page
-- `DigestView.jsx` — displays current week's digest if available
-- `pages/ArticleDetailPage.jsx` — fetches GET /articles/{id}, shows full summary, hosts chat interface; sends POST /articles/{id}/chat with full conversation history on each message
+- `App.jsx` — defines routes, home page state (articles, digest, toast), polling every 5s
+- `AddArticle.jsx` — URL input + submit, sends `X-API-Key` header
+- `ArticleCard.jsx` — title, domain, score badge, status pill, delete; clicking navigates to detail
+- `DigestView.jsx` — renders this week's digest markdown; below digest, renders `<AgentTrace>`
+- `AgentTrace.jsx` — expandable panel showing each agent step as a timeline ← new
+- `pages/ArticleDetailPage.jsx` — full summary, score reason, chat interface
 
 **Data flow:**
-- `App.jsx` fetches GET /articles on load and every 5 seconds
-- On submit, `AddArticle` calls POST /articles; `App` adds an optimistic "Processing" card immediately
-- Score badge colour: green (≥8), amber (5–7), grey (≤4)
-- Chat history is kept in local component state — each POST /chat sends the full `messages` array so Claude has full context
-
-**Vite proxy (dev only):**
-```js
-// vite.config.js — /articles covers /articles/{id}/chat automatically
-server: {
-  proxy: {
-    '/articles': 'http://localhost:8000',
-    '/digest': 'http://localhost:8000',
-  }
-}
-```
+- `App.jsx` fetches `GET /articles` on load and every 5 seconds
+- `App.jsx` fetches `GET /digest/current` and passes both `content` and `trace` to `DigestView`
+- Chat history kept in local state — each POST /chat sends the full `messages` array
 
 ---
 
@@ -292,87 +307,22 @@ update article: title, summary, score,
 
 ---
 
-## 6. Security (planned)
+## 6. Security
 
-### Rate limiting — Step 9
+### Authentication
+`APIKeyHeader` FastAPI dependency checks `X-API-Key` against `SECRET_KEY` env var.
+Skipped entirely when `SECRET_KEY` is not set — no friction in local dev.
+Applied to: `POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`.
+GET routes are open (read-only, no AI cost).
 
-Library: [`slowapi`](https://github.com/laurentS/slowapi) (FastAPI-compatible wrapper around `limits`).
+### Rate limiting
+`slowapi` — per IP, in-memory. `POST /articles`: 20/hour. `POST /articles/{id}/chat`: 30/hour.
 
-```
-pip install slowapi
-```
+### Path traversal
+`serve_spa` resolves `(dist_root / full_path).resolve()` and checks `is_relative_to(dist_root)` before serving. Falls back to `index.html` if the resolved path escapes the dist directory.
 
-Implementation sketch (`main.py`):
-```python
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-
-limiter = Limiter(key_func=get_remote_address)
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-@app.post("/articles")
-@limiter.limit("20/hour")
-async def create_article(request: Request, ...):
-    ...
-
-@app.post("/articles/{article_id}/chat")
-@limiter.limit("30/hour")
-async def chat_with_article(request: Request, ...):
-    ...
-```
-
-Limits are per IP address, stored in memory (resets on restart). Can be upgraded to Redis for persistence across restarts.
-
----
-
-### Authentication — Step 10
-
-**Option A: Caddy HTTP Basic Auth** (requires Docker/Caddy from Step 8)
-
-Add to `Caddyfile`:
-```
-queue.yourdomain.com {
-    basic_auth {
-        # generate hash with: caddy hash-password
-        username $2a$14$...hashed_password...
-    }
-    reverse_proxy app:8000
-}
-```
-
-Zero backend code changes. The browser will show a native login prompt.
-
-**Option B: FastAPI API key** (works standalone, no Docker required)
-
-Add to `.env`:
-```
-SECRET_KEY=some-long-random-string
-```
-
-Add to `main.py`:
-```python
-from fastapi.security.api_key import APIKeyHeader
-
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
-
-async def verify_key(key: str = Depends(api_key_header)):
-    if key != os.getenv("SECRET_KEY"):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-
-# Apply to sensitive routes:
-@app.post("/articles", dependencies=[Depends(verify_key)])
-@app.delete("/articles/{article_id}", dependencies=[Depends(verify_key)])
-@app.post("/articles/{article_id}/chat", dependencies=[Depends(verify_key)])
-```
-
-Frontend sends the header on every mutating request:
-```js
-headers: { 'X-API-Key': import.meta.env.VITE_API_KEY }
-```
-
-Add `VITE_API_KEY` to `frontend/.env.local` (gitignored by `*.local`).
+### CORS
+Controlled by `CORS_ORIGINS` env var. Defaults to localhost origins in dev; set to production domain before deploying.
 
 ---
 
@@ -380,10 +330,139 @@ Add `VITE_API_KEY` to `frontend/.env.local` (gitignored by `*.local`).
 
 ### Local dev
 ```bash
-uvicorn main:app --reload
+./start.sh   # starts backend (:8000) + frontend (:5173) with one command
 ```
 
 ### Docker
-- `Dockerfile`: Python 3.12 slim, install deps, run uvicorn on port 8000
-- `docker-compose.yml`: single `app` service, SQLite db file mounted as volume
-- `Caddyfile`: reverse proxy `queue.yourdomain.com` → `app:8000`
+- Multi-stage Dockerfile: Node 20 Alpine builds React → Python 3.11 slim runs everything
+- `VITE_API_KEY` passed as build arg so Vite embeds it in the JS bundle
+- `docker-compose.yml`: single `app` service, SQLite persisted at `/app/data/articles.db` on a named volume
+- `Caddyfile`: optional TLS reverse proxy — uncomment Caddy service in compose when deploying with a real domain
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key |
+| `TAVILY_API_KEY` | Yes (for digest) | — | Tavily search API key |
+| `SECRET_KEY` | Prod only | — | API key for mutating endpoints |
+| `DATABASE_URL` | No | SQLite local file | SQLAlchemy connection string |
+| `CORS_ORIGINS` | No | localhost origins | Comma-separated allowed origins |
+| `INTERESTS` | No | `agentic systems, AI/ML, LLM engineering, software architecture` | User interests — biases scoring and digest framing |
+
+---
+
+## 8. Agentic Digest — Design
+
+### Overview
+
+The digest is generated by an agent loop: Claude is given tools and decides what to call, in what order, until it is ready to write the final digest.
+
+```
+System prompt: user interests + instructions
+      │
+      ▼
+Claude reasons → calls list_articles
+      │
+      ▼
+Claude reads articles, spots themes
+      │
+      ├── (optional) calls web_search one or more times
+      │
+      ▼
+Claude calls save_digest → loop ends
+```
+
+This is a "tool-use agentic loop" — the fundamental agent pattern. Claude drives the sequence; our code executes whatever tool it asks for.
+
+### Tools
+
+**`list_articles`**
+- No input
+- Returns: array of `{ title, url, summary, score, score_reason }` for all ready articles this week
+- The agent always calls this first
+
+**`web_search`**
+- Input: `{ "query": string }`
+- Calls Tavily API, returns top 3 results as `{ title, url, snippet }`
+- Agent decides if and when to call it, and what to search for
+- Typically called 0–3 times per digest
+
+**`save_digest`**
+- Input: `{ "content": string }` — markdown-formatted digest
+- Saves to `digests` table and signals end of loop (no further tool calls after this)
+
+### Decision log (trace)
+
+Every step of the agent loop is recorded as a list of trace entries:
+
+```json
+[
+  { "type": "reasoning", "content": "Let me look at this week's articles." },
+  { "type": "tool_call", "tool": "list_articles", "input": {}, "summary": "5 articles found" },
+  { "type": "reasoning", "content": "Themes: AI agents, Python tooling. I'll search for agent context." },
+  { "type": "tool_call", "tool": "web_search", "input": { "query": "..." }, "summary": "3 results" },
+  { "type": "tool_call", "tool": "save_digest", "input": { "content": "..." }, "summary": "Digest saved" }
+]
+```
+
+Reasoning entries come from Claude's text blocks returned before tool calls. Tool call entries are built from the `tool_use` content blocks. The trace is serialised to JSON and stored in `digests.trace`.
+
+### Agent loop implementation sketch
+
+```python
+# services/digest_agent.py
+
+tools = [list_articles_tool, web_search_tool, save_digest_tool]
+messages = []
+trace = []
+
+while True:
+    response = await client.messages.create(
+        model="claude-opus-4-7",
+        system=build_system_prompt(),   # includes INTERESTS
+        tools=tools,
+        messages=messages,
+    )
+
+    # Capture reasoning text the model emitted before tool calls
+    for block in response.content:
+        if block.type == "text" and block.text.strip():
+            trace.append({"type": "reasoning", "content": block.text})
+
+    if response.stop_reason == "end_turn":
+        break   # model finished without calling a tool — shouldn't happen but safe
+
+    # Execute each tool the model requested
+    tool_results = []
+    for block in response.content:
+        if block.type == "tool_use":
+            result, trace_entry = await execute_tool(block.name, block.input)
+            trace.append(trace_entry)
+            tool_results.append(build_tool_result(block.id, result))
+            if block.name == "save_digest":
+                return  # digest saved, done
+
+    # Append assistant turn + tool results and loop
+    messages.append({"role": "assistant", "content": response.content})
+    messages.append({"role": "user", "content": tool_results})
+```
+
+### Frontend: AgentTrace component
+
+Displayed below the digest content in `DigestView.jsx`.
+
+```
+┌─ How the agent thought ─────────────────────── [expand ▼] ┐
+│                                                             │
+│  💭 "Let me look at this week's articles first."           │
+│  🔧 list_articles → Found 5 articles                       │
+│  💭 "Strong theme around agentic systems. I'll search..."  │
+│  🔧 web_search("agentic AI 2025") → 3 results              │
+│  💭 "I have enough context. Writing digest now."           │
+│  ✅ save_digest → Done                                     │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Collapsed by default. Each step shows icon, action, and brief summary.

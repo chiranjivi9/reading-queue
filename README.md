@@ -8,7 +8,8 @@ A personal tool to paste article URLs during the week and get a ranked digest ev
 - See all articles for the current week, sorted by score
 - Click any article card to open its detail page — full summary, score breakdown, and a chat interface
 - Ask follow-up questions about any article directly in the browser (prompt caching keeps it fast and cheap)
-- Every Friday at 6pm, a digest is automatically generated
+- Every Friday at 6pm, an **AI agent** generates the weekly digest — it reads your articles, searches the web for related context (via Tavily), finds cross-cutting themes through the lens of your interests, and writes a synthesised briefing
+- The digest page shows an **agent decision log** — an expandable timeline of every tool call and reasoning step the agent took, so you can see exactly what it did and why
 
 ## Tech stack
 
@@ -17,8 +18,9 @@ A personal tool to paste article URLs during the week and get a ranked digest ev
 - **SQLite** — local database (Postgres-compatible schema for future migration)
 - **SQLAlchemy (async)** — ORM for database access
 - **Trafilatura** — article content extraction
-- **Anthropic Claude API** — summarisation, relevance scoring, and article chat (with prompt caching)
-- **APScheduler** — Friday digest cron job
+- **Anthropic Claude API** — summarisation, relevance scoring, article chat (prompt caching), and agentic digest
+- **Tavily** — web search API used by the digest agent
+- **APScheduler** — Friday digest cron job (triggers the agent)
 
 **Frontend**
 - **React** — component-based UI
@@ -106,7 +108,11 @@ reading-queue/
 
 ## Environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | Your Anthropic API key |
-| `DATABASE_URL` | SQLAlchemy connection string (default: `sqlite+aiosqlite:///./articles.db`) |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Your Anthropic API key |
+| `TAVILY_API_KEY` | Yes (digest) | Tavily search API key — used by the digest agent |
+| `SECRET_KEY` | Prod only | API key for mutating endpoints (`X-API-Key` header) |
+| `DATABASE_URL` | No | SQLAlchemy connection string (default: SQLite local file) |
+| `CORS_ORIGINS` | No | Comma-separated allowed origins (default: localhost) |
+| `INTERESTS` | No | Comma-separated user interests — biases digest framing and article scoring (default: `agentic systems, AI/ML, LLM engineering, software architecture`) |

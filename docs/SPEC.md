@@ -2,11 +2,11 @@
 
 ## Overview
 
-A personal reading-queue web app. The user pastes article URLs during the week; the app extracts, summarises, and scores each article. On Fridays, a ranked digest is generated.
+A personal reading-queue web app. The user pastes article URLs during the week; the app extracts, summarises, and scores each article. Every Friday, an AI agent generates a synthesised digest — finding themes, making connections, and searching the web for related context — then saves its reasoning so the user can see exactly what the agent decided and why.
 
 ## Users
 
-Single-user personal tool. No authentication required.
+Single-user personal tool. API key authentication on mutating endpoints.
 
 ---
 
@@ -33,6 +33,10 @@ Single-user personal tool. No authentication required.
 - Detail page shows: title, domain, score badge, score reason, full summary, status
 - Full article text is accessible via `GET /articles/{id}`
 
+### FR-4: Delete an article
+
+- Hard delete — removed from database permanently
+
 ### FR-6: Chat with an article
 
 - On the detail page, the user can ask questions about the article
@@ -40,15 +44,32 @@ Single-user personal tool. No authentication required.
 - `POST /articles/{id}/chat` accepts a list of messages (conversation history) and returns the assistant reply
 - Prompt caching is used so the article text is only billed once per cache window — subsequent questions in the same conversation are cheaper
 
-### FR-4: Delete an article
+### FR-5: Weekly digest — Agentic
 
-- Hard delete — removed from database permanently
+Every Friday at 6pm, an AI agent generates the digest. The agent:
 
-### FR-5: Weekly digest
+1. Calls `list_articles` to read all articles saved this week
+2. Reasons about themes — including through the lens of the user's standing interests (see `INTERESTS` env var)
+3. Optionally calls `web_search` (Tavily) one or more times to pull in related context on topics it finds interesting
+4. Calls `save_digest` when ready — this writes the final digest and ends the agent loop
 
-- Every Friday at 6pm, a digest is generated (stubbed for now — logs a message)
-- Digest is stored in the `digests` table for the current week
-- GET /digest/current returns this week's digest or null
+The digest is markdown-formatted. Unlike a simple summary loop, the agent synthesises across articles — it finds connections, frames diverse reads through the user's interests, and decides how much web research is warranted.
+
+### FR-7: Agent decision log
+
+- Every step the agent takes is recorded: its reasoning text, which tool it called, what it searched for, and what it decided
+- The trace is stored as JSON alongside the digest in the `digests` table
+- `GET /digest/current` returns both the digest content and the full trace
+- The UI displays the digest and, below it, an expandable **"How the agent thought"** panel showing each step as a timeline
+
+This serves two purposes: transparency (user sees why the digest was shaped as it was) and learning (the trace makes the agent loop observable and concrete).
+
+### FR-8: Configurable user interests
+
+- `INTERESTS` env var — comma-separated list of topics the user cares about
+- Default: `agentic systems, AI/ML, LLM engineering, software architecture`
+- Passed to the agent's system prompt to bias theme detection and web search queries
+- Also used by the article scoring prompt to define relevance
 
 ---
 
@@ -56,9 +77,11 @@ Single-user personal tool. No authentication required.
 
 ### NFR-1: Performance
 - Article processing happens in a background task — the POST endpoint must return immediately (< 200ms)
+- Digest generation is a background cron job — latency does not affect the user
 
 ### NFR-2: Reliability
 - If extraction or summarisation fails, article status is set to `failed` (visible in UI)
+- If the digest agent fails, the error is logged and the trace records the failure step
 - Errors are logged
 
 ### NFR-3: Portability
@@ -67,18 +90,25 @@ Single-user personal tool. No authentication required.
 
 ### NFR-4: Simplicity
 - React + Vite for frontend (component model, no complex state management)
-- No authentication
-- No separate worker process — background tasks run inside FastAPI
+- No separate worker process — background tasks and the agent loop run inside FastAPI
+- API key auth (header-based) — no session management
+
+### NFR-5: Security
+- Mutating endpoints (`POST /articles`, `DELETE /articles/{id}`, `POST /articles/{id}/chat`) require `X-API-Key` header
+- Auth is skipped in local dev when `SECRET_KEY` is not set — no friction during development
+- AI-triggering endpoints are rate-limited to prevent unexpected Anthropic bill spikes
+- Static file serving is path-traversal safe (resolved paths checked against dist root)
+
+### NFR-6: Rate limiting
+- `POST /articles` — max 20 requests/hour per IP
+- `POST /articles/{id}/chat` — max 30 requests/hour per IP
+- Exceeding the limit returns HTTP 429
 
 ---
 
 ## Scoring Criteria (Claude prompt)
 
-Claude scores articles 1–10 for relevance to someone interested in:
-- AI and machine learning
-- Software engineering
-- Startups
-- Financial markets
+Claude scores articles 1–10 for relevance to the user's interests (configurable via `INTERESTS` env var; default topics below).
 
 Score bands:
 - **8–10**: Green — highly relevant
@@ -87,21 +117,8 @@ Score bands:
 
 ---
 
-### NFR-5: Security (planned — Steps 9 & 10)
-- All endpoints that trigger AI calls (`POST /articles`, `POST /articles/{id}/chat`) must be rate-limited to prevent unexpected API cost spikes
-- The app must require authentication before any data can be read or written
-- Authentication approach: either HTTP Basic Auth at the Caddy proxy level (requires Docker deployment), or an API key header validated by a FastAPI dependency
-
-### NFR-6: Rate limiting (planned — Step 9)
-- `POST /articles` — max 20 requests/hour per IP
-- `POST /articles/{id}/chat` — max 30 requests/hour per IP
-- Exceeding the limit returns HTTP 429 with a clear error message
-
----
-
 ## Out of Scope
 
-- User accounts / authentication
 - Multiple users
 - Email delivery of digest
 - Mobile app
